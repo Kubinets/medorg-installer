@@ -1,182 +1,209 @@
 #!/bin/bash
-# Создание ярлыков (исправленная версия)
+# Создание ярлыков - ЛОКАЛЬНАЯ версия (без загрузок)
 
 set -e
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
 log() { echo -e "${BLUE}[INFO]${NC} $1"; }
 success() { echo -e "${GREEN}✓${NC} $1"; }
-warning() { echo -e "${RED}!${NC} $1"; }
+warning() { echo -e "${YELLOW}!${NC} $1"; }
+error() { echo -e "${RED}✗${NC} $1"; }
 
 create_shortcuts() {
-    log "Создание ярлыков..."
+    log "Создание ярлыков для пользователя: $TARGET_USER"
     
-    # Определяем путь к рабочему столу (для разных локалей)
-    DESKTOP_RU="$TARGET_HOME/Рабочий стол/Медицинские программы"
-    DESKTOP_EN="$TARGET_HOME/Desktop/Медицинские программы"
-    DESKTOP=""
-    
-    # Проверяем, какая директория существует
-    if [ -d "$(dirname "$DESKTOP_RU")" ]; then
-        DESKTOP="$DESKTOP_RU"
-    elif [ -d "$(dirname "$DESKTOP_EN")" ]; then
-        DESKTOP="$DESKTOP_EN"
-    else
-        # Создаем стандартный путь
-        DESKTOP="$TARGET_HOME/Desktop/Медицинские программы"
+    # Определяем путь к рабочему столу
+    DESKTOP_DIR="$TARGET_HOME/Рабочий стол"
+    if [ ! -d "$DESKTOP_DIR" ]; then
+        DESKTOP_DIR="$TARGET_HOME/Desktop"
     fi
+    
+    PROGRAM_DIR="$DESKTOP_DIR/Медицинские программы"
     
     # Создаем директорию для ярлыков
-    sudo -u "$TARGET_USER" mkdir -p "$DESKTOP"
-    log "Директория для ярлыков: $DESKTOP"
+    mkdir -p "$PROGRAM_DIR"
+    chown -R "$TARGET_USER:$TARGET_USER" "$PROGRAM_DIR"
     
-    # Базовый путь к программе
-    MEDORG_PATH="$TARGET_HOME/.wine_medorg/drive_c/MedCTech/MedOrg"
+    log "Директория для ярлыков: $PROGRAM_DIR"
     
-    # Проверяем существование пути
-    if [ ! -d "$MEDORG_PATH" ]; then
-        warning "Директория MedOrg не найдена: $MEDORG_PATH"
-        warning "Ярлыки не будут созданы"
-        return 1
+    # Путь к установленным программам
+    INSTALL_DIR="$TARGET_HOME/.wine_medorg/drive_c/MedCTech/MedOrg"
+    
+    if [ ! -d "$INSTALL_DIR" ]; then
+        warning "Директория с программами не найдена: $INSTALL_DIR"
+        warning "Создаю базовые ярлыки..."
+        create_basic_shortcuts "$PROGRAM_DIR"
+        return
     fi
     
-    # Создаем ярлыки для всех модулей, которые существуют
-    log "Поиск модулей для создания ярлыков..."
-    
-    # Используем массив из основной программы
-    # Если SELECTED_MODULES не пустой, используем его
-    # Иначе используем обязательные модули
-    if [ ${#SELECTED_MODULES[@]} -eq 0 ]; then
-        MODULES_TO_CREATE=("Lib" "LibDRV" "LibLinux")
+    # Определяем какие модули создавать
+    if [ -z "${SELECTED_MODULES+x}" ] || [ ${#SELECTED_MODULES[@]} -eq 0 ]; then
+        # Если SELECTED_MODULES не задан, используем обязательные модули
+        MODULES=("Lib" "LibDRV" "LibLinux")
+        log "Использую обязательные модули"
     else
-        MODULES_TO_CREATE=("${SELECTED_MODULES[@]}")
+        MODULES=("${SELECTED_MODULES[@]}")
+        log "Использую выбранные модули"
     fi
     
-    # Добавляем обязательные модули, если их нет в списке
-    for req_module in "Lib" "LibDRV" "LibLinux"; do
-        if [[ ! " ${MODULES_TO_CREATE[@]} " =~ " ${req_module} " ]]; then
-            MODULES_TO_CREATE+=("$req_module")
+    created=0
+    
+    # Создаем ярлыки для каждого модуля
+    for module in "${MODULES[@]}"; do
+        MODULE_PATH="$INSTALL_DIR/$module"
+        
+        if [ -d "$MODULE_PATH" ]; then
+            # Ищем .exe файл в директории модуля
+            EXE_FILE=$(find "$MODULE_PATH" -maxdepth 1 -name "*.exe" -type f | head -n 1)
+            
+            if [ -n "$EXE_FILE" ]; then
+                create_desktop_file "$PROGRAM_DIR" "$module" "$EXE_FILE"
+                created=$((created + 1))
+            else
+                warning "Не найден .exe файл для модуля: $module"
+            fi
+        else
+            warning "Директория модуля не найдена: $module"
         fi
     done
     
-    created_count=0
+    # Создаем вспомогательные ярлыки
+    create_helper_shortcuts "$PROGRAM_DIR"
     
-    # Создаем ярлык для каждого модуля
-    for module in "${MODULES_TO_CREATE[@]}"; do
-        MODULE_PATH="$MEDORG_PATH/$module"
-        
-        if [ -d "$MODULE_PATH" ]; then
-            # Ищем exe файл в директории модуля
-            EXE_FILE=$(find "$MODULE_PATH" -name "*.exe" -type f | head -1)
-            
-            if [ -n "$EXE_FILE" ]; then
-                # Создаем .desktop файл
-                DESKTOP_FILE="$DESKTOP/${module}.desktop"
-                
-                # Создаем содержимое .desktop файла
-                sudo -u "$TARGET_USER" bash -c "
-cat > '$DESKTOP_FILE' << 'EOF'
+    if [ $created -gt 0 ]; then
+        success "Создано ярлыков: $created"
+        success "Ярлыки расположены в: $PROGRAM_DIR"
+    else
+        warning "Не удалось создать ни одного ярлыка"
+    fi
+}
+
+create_desktop_file() {
+    local program_dir="$1"
+    local module="$2"
+    local exe_file="$3"
+    
+    DESKTOP_FILE="$program_dir/$module.desktop"
+    
+    # Создаем .desktop файл
+    cat > "$DESKTOP_FILE" << EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
 Name=MedOrg $module
 Comment=Медицинская информационная система
-Exec=env WINEPREFIX='$TARGET_HOME/.wine_medorg' WINEARCH=win32 wine '$EXE_FILE'
-Path=$MODULE_PATH
+Exec=env WINEPREFIX="$TARGET_HOME/.wine_medorg" WINEARCH=win32 wine "$exe_file"
+Path=$(dirname "$exe_file")
 Icon=wine
 Terminal=false
 StartupNotify=false
 Categories=Medical;
 EOF
-"
-                
-                # Устанавливаем права
-                sudo -u "$TARGET_USER" chmod +x "$DESKTOP_FILE"
-                
-                log "  Создан: $module → $(basename "$EXE_FILE")"
-                created_count=$((created_count + 1))
-            else
-                warning "  Нет .exe файла в модуле: $module"
-            fi
-        else
-            warning "  Директория модуля не найдена: $module"
-        fi
-    done
     
-    # Создаем скрипт запуска всех программ
-    create_launcher_script "$DESKTOP"
+    # Устанавливаем права
+    chown "$TARGET_USER:$TARGET_USER" "$DESKTOP_FILE"
+    chmod +x "$DESKTOP_FILE"
     
-    if [ $created_count -gt 0 ]; then
-        success "Создано ярлыков: $created_count"
-        success "Ярлыки расположены в: $DESKTOP"
-    else
-        warning "Не создано ни одного ярлыка!"
-    fi
+    log "  Создан ярлык: $module"
 }
 
-# Функция создания скрипта-лаунчера
-create_launcher_script() {
-    local desktop_dir="$1"
+create_basic_shortcuts() {
+    local program_dir="$1"
     
-    LAUNCHER_SCRIPT="$desktop_dir/Запустить все программы.sh"
-    
-    sudo -u "$TARGET_USER" bash -c "
-cat > '$LAUNCHER_SCRIPT' << 'EOF'
-#!/bin/bash
-# Скрипт запуска всех медицинских программ
-
-echo 'Запуск медицинских программ...'
-echo '================================'
-
-PROGRAMS_DIR='$MEDORG_PATH'
-WINE_PREFIX='$TARGET_HOME/.wine_medorg'
-
-# Экспортируем переменные Wine
-export WINEPREFIX=\"\$WINE_PREFIX\"
-export WINEARCH=win32
-
-# Запускаем основные модули
-for module in Lib LibDRV LibLinux; do
-    if [ -d \"\$PROGRAMS_DIR/\$module\" ]; then
-        exe_file=\$(find \"\$PROGRAMS_DIR/\$module\" -name \"*.exe\" -type f | head -1)
-        if [ -n \"\$exe_file\" ]; then
-            echo \"Запускаем \$module...\"
-            wine \"\$exe_file\" &
-            sleep 1
-        fi
-    fi
-done
-
-echo '================================'
-echo 'Программы запущены в фоновом режиме'
-echo 'Закройте это окно после запуска всех программ'
+    # Создаем хотя бы один базовый ярлык
+    cat > "$program_dir/Запуск_MedOrg.desktop" << EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Запуск MedOrg
+Comment=Запуск медицинской информационной системы
+Exec=echo "Для запуска программ войдите под пользователем $TARGET_USER и запустите нужный модуль"
+Icon=wine
+Terminal=true
+StartupNotify=false
+Categories=Medical;
 EOF
-"
     
-    sudo -u "$TARGET_USER" chmod +x "$LAUNCHER_SCRIPT"
-    log "  Создан скрипт-лаунчер: $(basename "$LAUNCHER_SCRIPT")"
+    chown "$TARGET_USER:$TARGET_USER" "$program_dir/Запуск_MedOrg.desktop"
+    chmod +x "$program_dir/Запуск_MedOrg.desktop"
+    
+    # Создаем скрипт помощи
+    cat > "$program_dir/README.txt" << EOF
+Медицинская информационная система MedOrg
+
+Для запуска программ:
+1. Войдите в систему как пользователь: $TARGET_USER
+2. Дважды щелкните на нужном ярлыке
+
+Если программы не запускаются, выполните в терминале:
+  cd ~/.wine_medorg/drive_c/MedCTech/MedOrg/Lib
+  wine *.exe
+
+Каталог с программами: $TARGET_HOME/.wine_medorg/drive_c/MedCTech/MedOrg
+EOF
+    
+    chown "$TARGET_USER:$TARGET_USER" "$program_dir/README.txt"
+}
+
+create_helper_shortcuts() {
+    local program_dir="$1"
+    
+    # Создаем скрипт для исправления прав
+    cat > "$program_dir/Исправить_права.sh" << EOF
+#!/bin/bash
+echo "Исправление прав доступа..."
+chown -R $TARGET_USER:$TARGET_USER $TARGET_HOME/.wine_medorg
+chmod -R 755 $TARGET_HOME/.wine_medorg
+echo "Готово!"
+read -p "Нажмите Enter для закрытия..."
+EOF
+    
+    chown "$TARGET_USER:$TARGET_USER" "$program_dir/Исправить_права.sh"
+    chmod +x "$program_dir/Исправить_права.sh"
+    
+    # Создаем скрипт для пересоздания Wine
+    cat > "$program_dir/Переустановить_Wine.sh" << EOF
+#!/bin/bash
+echo "Переустановка Wine prefix..."
+rm -rf $TARGET_HOME/.wine_medorg
+export WINEARCH=win32
+export WINEPREFIX=$TARGET_HOME/.wine_medorg
+wineboot --init
+echo "Готово! Можете установить компоненты через winetricks"
+read -p "Нажмите Enter для закрытия..."
+EOF
+    
+    chown "$TARGET_USER:$TARGET_USER" "$program_dir/Переустановить_Wine.sh"
+    chmod +x "$program_dir/Переустановить_Wine.sh"
+}
+
+# Проверка переменных окружения
+check_variables() {
+    if [ -z "$TARGET_USER" ]; then
+        error "Переменная TARGET_USER не установлена"
+        exit 1
+    fi
+    
+    if [ -z "$TARGET_HOME" ]; then
+        error "Переменная TARGET_HOME не установлена"
+        exit 1
+    fi
+    
+    # Проверяем существование пользователя
+    if ! id "$TARGET_USER" &>/dev/null; then
+        error "Пользователь $TARGET_USER не существует"
+        exit 1
+    fi
 }
 
 # Основная функция
 main() {
-    if [ -z "$TARGET_USER" ] || [ -z "$TARGET_HOME" ]; then
-        warning "Ошибка: TARGET_USER или TARGET_HOME не установлены"
-        exit 1
-    fi
-    
-    log "Пользователь: $TARGET_USER"
-    log "Домашняя директория: $TARGET_HOME"
-    
-    # Проверяем, установлена ли переменная SELECTED_MODULES
-    if [ -z "${SELECTED_MODULES+x}" ]; then
-        warning "Переменная SELECTED_MODULES не установлена, используются только обязательные модули"
-        SELECTED_MODULES=()
-    fi
-    
+    check_variables
     create_shortcuts
 }
 
