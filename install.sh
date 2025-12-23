@@ -1,5 +1,5 @@
 #!/bin/bash
-# MedOrg Installer v3.0
+# MedOrg Installer v3.0 - FIXED VERSION
 # by kubinets - https://github.com/kubinets
 
 set -e
@@ -12,6 +12,23 @@ BLUE='\033[0;34m'
 PURPLE='\033[1;35m'
 CYAN='\033[1;36m'
 NC='\033[0m'
+
+# ========== ФИКС ДЛЯ ПАЙПА ==========
+# Проверяем, запущен ли скрипт через пайп
+if [[ -t 0 ]]; then
+    # Интерактивный режим - используем обычный ввод
+    INPUT_METHOD="tty"
+else
+    # Неинтерактивный режим (пайп) - используем аргументы
+    INPUT_METHOD="args"
+    echo -e "${YELLOW}ВНИМАНИЕ: Скрипт запущен через пайп.${NC}"
+    echo -e "${YELLOW}Используйте аргументы командной строки:${NC}"
+    echo "  --user ИМЯ_ПОЛЬЗОВАТЕЛЯ"
+    echo "  --modules МОДУЛЬ1,МОДУЛЬ2,... или 'all' или 'none'"
+    echo "  --auto    Автоматическая установка с параметрами по умолчанию"
+    echo ""
+fi
+# =====================================
 
 # Функция печатающей машинки
 typewriter() {
@@ -98,31 +115,110 @@ check_root() {
     fi
 }
 
-# Выбор пользователя (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+# Парсинг аргументов командной строки
+parse_args() {
+    USER="meduser"
+    SELECTED_MODULES=()
+    AUTO_MODE=false
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --user)
+                USER="$2"
+                shift 2
+                ;;
+            --modules)
+                if [[ "$2" == "all" ]]; then
+                    SELECTED_MODULES=("${ALL_MODULES[@]}")
+                elif [[ "$2" == "none" ]]; then
+                    SELECTED_MODULES=()
+                else
+                    IFS=',' read -ra SELECTED_MODULES <<< "$2"
+                fi
+                shift 2
+                ;;
+            --auto)
+                AUTO_MODE=true
+                USER="meduser"
+                SELECTED_MODULES=()
+                shift
+                ;;
+            -h|--help)
+                echo "Использование:"
+                echo "  curl -sSL https://.../install.sh | sudo bash -- [ОПЦИИ]"
+                echo ""
+                echo "Опции:"
+                echo "  --user ИМЯ        Имя пользователя (по умолчанию: meduser)"
+                echo "  --modules СПИСОК  Модули через запятую, 'all' или 'none'"
+                echo "  --auto            Автоматическая установка с параметрами по умолчанию"
+                echo "  -h, --help        Показать эту справку"
+                echo ""
+                echo "Примеры:"
+                echo "  curl ... | sudo bash"
+                echo "  curl ... | sudo bash -- --user vasya --modules Admin,BolList"
+                echo "  curl ... | sudo bash -- --auto"
+                exit 0
+                ;;
+            --)
+                shift
+                break
+                ;;
+            *)
+                warning "Неизвестный аргумент: $1"
+                shift
+                ;;
+        esac
+    done
+}
+
+# Выбор пользователя (обновленная версия)
 select_user() {
-    echo ""
-    echo -e "${BLUE}╔══════════════════════════════════════════════════╗${NC}"
-    echo -e "${BLUE}║           ВЫБОР ПОЛЬЗОВАТЕЛЯ                    ║${NC}"
-    echo -e "${BLUE}╚══════════════════════════════════════════════════╝${NC}"
-    echo ""
+    if [[ "$AUTO_MODE" == true ]] || [[ "$INPUT_METHOD" == "args" ]]; then
+        # Используем аргументы или авто-режим
+        log "Пользователь установлен: $USER"
+    else
+        # Интерактивный режим
+        echo ""
+        echo -e "${BLUE}╔══════════════════════════════════════════════════╗${NC}"
+        echo -e "${BLUE}║           ВЫБОР ПОЛЬЗОВАТЕЛЯ                    ║${NC}"
+        echo -e "${BLUE}╚══════════════════════════════════════════════════╝${NC}"
+        echo ""
+        
+        # Используем /dev/tty для чтения с терминала
+        exec < /dev/tty
+        
+        read -p "Введите имя пользователя для установки [meduser]: " input_user
+        USER="${input_user:-meduser}"
+    fi
     
-    # Используем специальную переменную для read
-    exec 3<&0  # Сохраняем стандартный ввод
-    
-    # Явно читаем с терминала
-    read -p "Введите имя пользователя для установки [meduser]: " USER <&3
-    USER=${USER:-meduser}
-    
+    # Проверка/создание пользователя
     if ! id "$USER" &>/dev/null; then
-        echo -n "Создать пользователя '$USER'? (y/N): "
-        read -r CREATE_USER <&3
-        if [[ $CREATE_USER =~ ^[Yy]$ ]]; then
+        if [[ "$AUTO_MODE" == true ]]; then
+            # Автоматически создаем пользователя
             useradd -m -s /bin/bash "$USER"
-            echo "Установка пароля для пользователя '$USER':"
-            passwd "$USER"
-            success "Пользователь '$USER' создан"
+            echo "$USER:$USER" | chpasswd  # Пароль = имя пользователя
+            success "Пользователь '$USER' создан автоматически"
+        elif [[ "$INPUT_METHOD" == "args" ]]; then
+            warning "Пользователь '$USER' не существует."
+            read -p "Создать пользователя '$USER'? (y/N): " -n 1 -r < /dev/tty
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                useradd -m -s /bin/bash "$USER"
+                passwd "$USER"
+                success "Пользователь '$USER' создан"
+            else
+                error "Пользователь не существует"
+            fi
         else
-            error "Пользователь не существует"
+            read -p "Создать пользователя '$USER'? (y/N): " -n 1 -r
+            echo
+            if [[ $REPLY =~ ^[Yy]$ ]]; then
+                useradd -m -s /bin/bash "$USER"
+                passwd "$USER"
+                success "Пользователь '$USER' создан"
+            else
+                error "Пользователь не существует"
+            fi
         fi
     fi
     
@@ -131,8 +227,21 @@ select_user() {
     success "Домашняя директория: $HOME_DIR"
 }
 
-# Выбор модулей (ИСПРАВЛЕННАЯ ВЕРСИЯ)
+# Выбор модулей (обновленная версия)
 select_modules() {
+    if [[ "$AUTO_MODE" == true ]]; then
+        SELECTED_MODULES=()
+        log "Автоматический режим: установка только обязательных модулей"
+        return
+    fi
+    
+    if [[ "$INPUT_METHOD" == "args" ]] && [[ ${#SELECTED_MODULES[@]} -gt 0 ]]; then
+        # Модули уже выбраны через аргументы
+        log "Модули выбраны через аргументы командной строки"
+        return
+    fi
+    
+    # Интерактивный выбор
     echo ""
     echo -e "${BLUE}╔══════════════════════════════════════════════════╗${NC}"
     echo -e "${BLUE}║           ВЫБОР МОДУЛЕЙ                         ║${NC}"
@@ -154,9 +263,13 @@ select_modules() {
     echo "  n. Только обязательные"
     echo ""
     
+    # Читаем с терминала
+    if [[ "$INPUT_METHOD" == "args" ]]; then
+        exec < /dev/tty
+    fi
+    
     while true; do
-        echo -n "Выберите модули (номера через пробел, 'a' или 'n'): "
-        read -r choices <&3
+        read -p "Выберите модули (номера через пробел, 'a' или 'n'): " choices
         
         SELECTED_MODULES=()
         
@@ -199,13 +312,14 @@ select_modules() {
     for module in "${SELECTED_MODULES[@]}"; do
         echo "  • $module"
     done
-    
-    exec 3<&-  # Закрываем файловый дескриптор
 }
 
 # Основной процесс установки
 main() {
     show_header
+    
+    # Парсим аргументы
+    parse_args "$@"
     
     # Проверка прав
     check_root
@@ -278,5 +392,5 @@ main() {
     echo ""
 }
 
-# Запуск
+# Запуск (передаем все аргументы после --)
 main "$@"
