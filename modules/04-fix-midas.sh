@@ -108,6 +108,25 @@ find_midas() {
     fi
 }
 
+# Исправление прав на директорию
+fix_permissions() {
+    log "Исправление прав доступа..."
+    
+    echo -n "  Устанавливаем владельца для $LIB_DIR... "
+    if chown -R "$USER:$USER" "$LIB_DIR" 2>/dev/null; then
+        echo -e "${GREEN}✓${NC}"
+    else
+        echo -e "${YELLOW}!${NC}"
+    fi
+    
+    echo -n "  Устанавливаем разрешения... "
+    if chmod -R 755 "$LIB_DIR" 2>/dev/null; then
+        echo -e "${GREEN}✓${NC}"
+    else
+        echo -e "${YELLOW}!${NC}"
+    fi
+}
+
 # Создание символьных ссылок
 create_links() {
     print_section "СОЗДАНИЕ ССЫЛОК"
@@ -120,10 +139,10 @@ create_links() {
         return 1
     fi
     
-    cd "$LIB_DIR" || {
-        error "Не удалось перейти в $LIB_DIR"
-        return 1
-    }
+    # Сначала исправляем права
+    fix_permissions
+    
+    echo ""
     
     local links_created=0
     local link_pairs=(
@@ -141,13 +160,21 @@ create_links() {
         source_file=$(echo "$pair" | awk '{print $1}')
         link_name=$(echo "$pair" | awk '{print $2}')
         
-        if [ -f "$source_file" ]; then
+        if [ -f "$LIB_DIR/$source_file" ]; then
             echo -n "  $source_file → $link_name... "
-            if ln -sf "$source_file" "$link_name" 2>/dev/null; then
+            # Создаем ссылку от имени пользователя
+            if sudo -u "$USER" ln -sf "$source_file" "$LIB_DIR/$link_name" 2>/dev/null; then
                 echo -e "${GREEN}✓${NC}"
                 links_created=$((links_created + 1))
             else
-                echo -e "${YELLOW}!${NC}"
+                # Если не получилось, пробуем исправить права и создать
+                chown "$USER:$USER" "$LIB_DIR/$source_file" 2>/dev/null
+                if sudo -u "$USER" ln -sf "$source_file" "$LIB_DIR/$link_name" 2>/dev/null; then
+                    echo -e "${GREEN}✓${NC}"
+                    links_created=$((links_created + 1))
+                else
+                    echo -e "${YELLOW}!${NC}"
+                fi
             fi
         fi
     done
@@ -157,10 +184,13 @@ create_links() {
     if [ $links_created -gt 0 ]; then
         success "Создано ссылок: $links_created"
         
+        # Исправляем владельца всех файлов
+        chown -R "$USER:$USER" "$LIB_DIR"/* 2>/dev/null || true
+        
         # Показываем созданные ссылки
         echo ""
         log "Проверка созданных ссылок:"
-        ls -la "$LIB_DIR/"*[Mm][Ii][Dd][Aa][Ss]* 2>/dev/null | grep -E "midas|MIDAS|Midas" | while read -r line; do
+        sudo -u "$USER" ls -la "$LIB_DIR/"*[Mm][Ii][Dd][Aa][Ss]* 2>/dev/null | grep -E "midas|MIDAS|Midas" | while read -r line; do
             echo "  $line"
         done || true
     else
@@ -203,6 +233,9 @@ REGEOF
         success "Файл реестра создан"
         echo -e "  ${GREEN}→${NC} $reg_file"
         
+        # Устанавливаем права на файл реестра
+        chown "$USER:$USER" "$reg_file" 2>/dev/null || true
+        
         # Показываем содержимое
         echo ""
         log "Содержимое файла реестра:"
@@ -229,6 +262,9 @@ apply_registry() {
         return 1
     fi
     
+    # Убедимся, что файл принадлежит пользователю
+    chown "$USER:$USER" "$reg_file" 2>/dev/null || true
+    
     # Экспортируем переменные Wine
     export WINEPREFIX="$HOME_DIR/.wine_medorg"
     export WINEARCH=win32
@@ -236,37 +272,26 @@ apply_registry() {
     
     echo -ne "\n  ${BLUE}Загрузка в реестр Wine...${NC} "
     
-    if sudo -u "$USER" wine regedit "$reg_file" 2>/dev/null; then
+    if sudo -u "$USER" env WINEPREFIX="$WINEPREFIX" WINEARCH=win32 WINEDEBUG=-all wine regedit "$reg_file" 2>/dev/null; then
         echo -e "${GREEN}✓${NC}"
         
         # Проверяем добавленные ключи
         echo ""
         log "Проверка записей реестра:"
         
-        # Создаем скрипт для проверки реестра
-        local check_script="/tmp/check_reg_$$.sh"
-        cat > "$check_script" << 'EOF'
-#!/bin/bash
-export WINEPREFIX="$1"
-export WINEARCH=win32
-export WINEDEBUG=-all
-
-wine reg query "HKLM\\Software\\Borland\\Database Engine" 2>/dev/null | grep -i "dllpath\|syspath" || echo "  (ключи не найдены)"
-EOF
-        chmod +x "$check_script"
-        
-        if sudo -u "$USER" bash "$check_script" "$WINEPREFIX" | while read -r line; do
-            echo "  $line"
-        done; then
-            echo "  ${GREEN}✓ Записи реестра применены${NC}"
+        # Проверяем через wine reg query
+        if sudo -u "$USER" env WINEPREFIX="$WINEPREFIX" WINEARCH=win32 wine reg query "HKLM\\Software\\Borland\\Database Engine" 2>/dev/null | grep -i "dllpath\|syspath"; then
+            echo -e "  ${GREEN}✓ Записи реестра применены${NC}"
+        else
+            echo -e "  ${YELLOW}! Записи не найдены в реестре${NC}"
         fi
-        
-        rm -f "$check_script"
         
         return 0
     else
         echo -e "${YELLOW}!${NC}"
         warning "Не удалось применить реестр автоматически"
+        log "Попробуйте вручную от пользователя $USER:"
+        echo -e "  ${CYAN}wine regedit '$reg_file'${NC}"
         return 1
     fi
 }
@@ -295,8 +320,26 @@ echo "Пользователь: \$USER"
 echo "Путь к библиотекам: \$LIB_DIR"
 echo ""
 
+# Исправляем права
+echo "Шаг 1: Исправление прав доступа"
+echo "───────────────────────────────"
+echo -n "  Установка владельца... "
+if chown -R "\$USER:\$USER" "\$LIB_DIR" 2>/dev/null; then
+    echo "✓"
+else
+    echo "⚠"
+fi
+
+echo -n "  Установка разрешений... "
+if chmod -R 755 "\$LIB_DIR" 2>/dev/null; then
+    echo "✓"
+else
+    echo "⚠"
+fi
+
 # Проверяем существование midas.dll
 if [ ! -f "\$LIB_DIR/midas.dll" ]; then
+    echo ""
     echo "❌ Ошибка: midas.dll не найдена в \$LIB_DIR"
     echo ""
     echo "Возможные решения:"
@@ -306,7 +349,8 @@ if [ ! -f "\$LIB_DIR/midas.dll" ]; then
     exit 1
 fi
 
-echo "Шаг 1: Создание ссылок"
+echo ""
+echo "Шаг 2: Создание ссылок"
 echo "──────────────────────"
 cd "\$LIB_DIR"
 
@@ -321,7 +365,7 @@ for link in "\${links[@]}"; do
 done
 
 echo ""
-echo "Шаг 2: Создание файла реестра"
+echo "Шаг 3: Создание файла реестра"
 echo "─────────────────────────────"
 cat > /tmp/midas_fix.reg << 'REGEOF'
 REGEDIT4
@@ -331,15 +375,26 @@ REGEDIT4
 
 [HKEY_LOCAL_MACHINE\Software\Borland\BLW32]
 "BLAPIPATH"="C:\\MedCTech\\MedOrg\\Lib"
+
+[HKEY_LOCAL_MACHINE\Software\Borland\Database Engine\Settings]
+"NET DIR"="C:\\MedCTech\\MedOrg\\Lib"
+"LANGDRIVER"=""
+"SYSPATH"="C:\\MedCTech\\MedOrg\\Lib"
+
+[HKEY_LOCAL_MACHINE\Software\Wine\DllOverrides]
+"midas"="native,builtin"
+"midas32"="native,builtin"
+"borlndmm"="native,builtin"
 REGEOF
 
 echo "  Файл реестра создан: /tmp/midas_fix.reg"
 
 echo ""
-echo "Шаг 3: Применение реестра"
+echo "Шаг 4: Применение реестра"
 echo "─────────────────────────"
 export WINEPREFIX="\$HOME_DIR/.wine_medorg"
 export WINEARCH=win32
+export WINEDEBUG=-all
 
 echo -n "  Загрузка в реестр Wine... "
 if wine regedit /tmp/midas_fix.reg 2>/dev/null; then
@@ -412,6 +467,7 @@ main() {
     echo -e "${CYAN}Выполненные действия:${NC}"
     echo -e "${BLUE}─────────────────────${NC}"
     echo -e "  ${GREEN}•${NC} Найдена библиотека midas.dll"
+    echo -e "  ${GREEN}•${NC} Исправлены права доступа"
     echo -e "  ${GREEN}•${NC} Созданы символьные ссылки"
     echo -e "  ${GREEN}•${NC} Добавлены записи в реестр Wine"
     echo -e "  ${GREEN}•${NC} Создан скрипт ручного исправления"
@@ -421,7 +477,11 @@ main() {
     echo -e "  ${YELLOW}$LIB_DIR/${NC}"
     echo ""
     echo -e "${BLUE}Для ручного исправления выполните:${NC}"
-    echo -e "${YELLOW}  sudo -u $USER $HOME_DIR/fix_midas_manually.sh${NC}"
+    echo -e "${BLUE}──────────────────────────────────${NC}"
+    echo -e "  ${YELLOW}sudo -u $USER $HOME_DIR/fix_midas_manually.sh${NC}"
+    echo ""
+    echo -e "${YELLOW}Или войдите как пользователь $USER и выполните:${NC}"
+    echo -e "  ${CYAN}$HOME_DIR/fix_midas_manually.sh${NC}"
     echo ""
     
     # Автовыход через 2 секунды
