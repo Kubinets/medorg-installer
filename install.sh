@@ -1,5 +1,5 @@
 #!/bin/bash
-# MedOrg Installer v2.0
+# MedOrg Installer v2.1
 # Выборочная установка модулей MedOrg
 
 set -e
@@ -12,7 +12,6 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 # Конфигурация
-REPO_URL="https://raw.githubusercontent.com/ваш-логин/medorg-installer/main"
 INSTALL_DIR="/tmp/medorg-installer-$$"
 
 # Функции вывода
@@ -22,48 +21,10 @@ log_warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # Списки папок
-REQUIRED_FOLDERS=("Lib" "LibDRV" "LibLinux")  # Обязательные
+REQUIRED_FOLDERS=("Lib" "LibDRV" "LibLinux")  # Обязательные (всегда копируются)
 OPTIONAL_FOLDERS=("BolList" "DayStac" "Dispanser" "DopDisp" "OtdelStac" 
                   "Pokoy" "RegPeople" "RegPol" "StatPol" "StatStac" 
                   "StatYear" "WrachPol")  # Опциональные (по выбору)
-
-# Проверка интернета
-check_internet() {
-    if ! ping -c 1 -W 2 8.8.8.8 &>/dev/null && ! ping -c 1 -W 2 1.1.1.1 &>/dev/null; then
-        log_error "Нет подключения к интернету!"
-        exit 1
-    fi
-}
-
-# Скачивание файла
-download_file() {
-    local url="$1"
-    local dest="$2"
-    
-    log_info "Скачивание: $(basename "$dest")"
-    
-    if command -v curl &>/dev/null; then
-        curl -sSL --connect-timeout 30 "$url" -o "$dest"
-    elif command -v wget &>/dev/null; then
-        wget -q --timeout=30 "$url" -O "$dest"
-    else
-        log_error "Установите curl или wget!"
-        exit 1
-    fi
-    
-    if [ ! -s "$dest" ]; then
-        log_error "Не удалось скачать: $url"
-        return 1
-    fi
-    return 0
-}
-
-# Создание временной директории
-setup_temp_dir() {
-    rm -rf "$INSTALL_DIR" 2>/dev/null
-    mkdir -p "$INSTALL_DIR"
-    cd "$INSTALL_DIR"
-}
 
 # Проверка прав
 check_root() {
@@ -78,7 +39,7 @@ select_user() {
     echo ""
     echo "╔════════════════════════════════════════════════════╗"
     echo "║         Установка медицинской программы           ║"
-    echo "║                  MedOrg v2.0                       ║"
+    echo "║                  MedOrg v2.1                       ║"
     echo "╚════════════════════════════════════════════════════╝"
     echo ""
     
@@ -117,14 +78,14 @@ select_user() {
     log_success "Домашняя директория: $TARGET_HOME"
 }
 
-# Выбор модулей
-select_modules() {
+# Выбор опциональных модулей
+select_optional_modules() {
     echo ""
     echo "╔════════════════════════════════════════════════════╗"
-    echo "║           ВЫБОР МОДУЛЕЙ ДЛЯ УСТАНОВКИ             ║"
+    echo "║         ВЫБОР ДОПОЛНИТЕЛЬНЫХ МОДУЛЕЙ              ║"
     echo "╚════════════════════════════════════════════════════╝"
     echo ""
-    echo "Обязательно устанавливаются:"
+    echo "Обязательные модули (будут установлены автоматически):"
     echo "  ${REQUIRED_FOLDERS[*]}"
     echo ""
     echo "Выберите дополнительные модули:"
@@ -145,43 +106,33 @@ select_modules() {
     done
     
     echo ""
-    echo "  13. Все модули"
-    echo "  14. Только обязательные"
+    echo "  13. Все дополнительные модули"
+    echo "  14. Без дополнительных модулей"
     echo ""
     
+    SELECTED_MODULES=()
+    
     while true; do
-        read -p "Введите номера через пробел или диапазон (1-14): " choices
+        read -p "Введите номера через пробел (1-14): " choices
         
         if [ -z "$choices" ]; then
-            log_warning "Не сделано ни одного выбора!"
+            log_warning "Не сделан выбор!"
             continue
         fi
         
-        SELECTED_MODULES=()
-        
         # Обрабатываем выбор
         for choice in $choices; do
-            # Проверяем диапазон
-            if [[ "$choice" =~ ^([0-9]+)-([0-9]+)$ ]]; then
-                start=${BASH_REMATCH[1]}
-                end=${BASH_REMATCH[2]}
-                for ((i=start; i<=end; i++)); do
-                    choice=$i
-                    # Пропускаем обработку диапазона дальше
-                done
-            fi
-            
             case $choice in
                 13)  # Все модули
                     SELECTED_MODULES=("${OPTIONAL_FOLDERS[@]}")
                     echo ""
-                    log_success "Выбраны ВСЕ модули"
+                    log_success "Выбраны ВСЕ дополнительные модули"
                     return
                     ;;
-                14)  # Только обязательные
+                14)  # Без дополнительных
                     SELECTED_MODULES=()
                     echo ""
-                    log_success "Выбраны только обязательные модули"
+                    log_success "Без дополнительных модулей"
                     return
                     ;;
                 [1-9]|1[0-2])  # Номера 1-12
@@ -206,7 +157,7 @@ select_modules() {
     done
     
     echo ""
-    log_success "Выбраны модули:"
+    log_success "Выбраны дополнительные модули:"
     for module in "${SELECTED_MODULES[@]}"; do
         echo "  • $module"
     done
@@ -217,9 +168,7 @@ install_dependencies() {
     log_info "Установка системных зависимостей..."
     
     # Обновление системы
-    if ! dnf update -y; then
-        log_warning "Не удалось обновить систему, продолжаем..."
-    fi
+    dnf update -y || log_warning "Не удалось обновить систему"
     
     # Основные утилиты
     dnf install -y wget curl cabextract p7zip unzip tar
@@ -232,23 +181,16 @@ install_dependencies() {
     dnf install -y cifs-utils nfs-utils
     
     # Wine
-    if ! dnf install -y wine wine.i686; then
-        log_error "Не удалось установить Wine!"
-        exit 1
-    fi
+    dnf install -y wine wine.i686
     
     # Для иконок
     dnf install -y icoutils ImageMagick
     
     # Winetricks
     if [ ! -f /usr/local/bin/winetricks ]; then
-        if wget -q https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks; then
-            chmod +x winetricks
-            mv winetricks /usr/local/bin/
-            log_success "Winetricks установлен"
-        else
-            log_warning "Не удалось установить winetricks"
-        fi
+        wget -q https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks
+        chmod +x winetricks
+        mv winetricks /usr/local/bin/
     fi
     
     log_success "Зависимости установлены"
@@ -259,29 +201,20 @@ setup_wine() {
     local user="$1"
     local home="$2"
     
-    log_info "Настройка Wine для пользователя $user..."
+    log_info "Настройка Wine..."
     
     # Создаем Wine префикс
     sudo -u "$user" env WINEPREFIX="$home/.wine_medorg" WINEARCH=win32 wineboot --init 2>/dev/null
     
-    # Настраиваем winecfg
-    sudo -u "$user" env WINEPREFIX="$home/.wine_medorg" WINEARCH=win32 winecfg /v 2>/dev/null &
-    
     # Устанавливаем компоненты через winetricks
     log_info "Установка компонентов Wine..."
     
-    if [ -f /usr/local/bin/winetricks ]; then
-        sudo -u "$user" env WINEPREFIX="$home/.wine_medorg" WINEARCH=win32 \
-            winetricks -q corefonts 2>/dev/null || true
-        sudo -u "$user" env WINEPREFIX="$home/.wine_medorg" WINEARCH=win32 \
-            winetricks -q tahoma 2>/dev/null || true
-        sudo -u "$user" env WINEPREFIX="$home/.wine_medorg" WINEARCH=win32 \
-            winetricks -q vcrun6 2>/dev/null || true
-        sudo -u "$user" env WINEPREFIX="$home/.wine_medorg" WINEARCH=win32 \
-            winetricks -q mdac28 2>/dev/null || true
-        sudo -u "$user" env WINEPREFIX="$home/.wine_medorg" WINEARCH=win32 \
-            winetricks -q jet40 2>/dev/null || true
-    fi
+    sudo -u "$user" env WINEPREFIX="$home/.wine_medorg" WINEARCH=win32 \
+        winetricks -q corefonts 2>/dev/null || true
+    sudo -u "$user" env WINEPREFIX="$home/.wine_medorg" WINEARCH=win32 \
+        winetricks -q vcrun6 2>/dev/null || true
+    sudo -u "$user" env WINEPREFIX="$home/.wine_medorg" WINEARCH=win32 \
+        winetricks -q mdac28 2>/dev/null || true
     
     log_success "Wine настроен"
 }
@@ -305,34 +238,276 @@ copy_files() {
         TARGET_DIR="$home/.wine_medorg/drive_c/MedCTech/MedOrg"
         mkdir -p "$TARGET_DIR"
         
-        # Всегда копируем обязательные папки
-        log_info "Копирование обязательных папок..."
+        # ВСЕГДА копируем обязательные папки
+        log_info "Копирование обязательных папок:"
         for folder in "${REQUIRED_FOLDERS[@]}"; do
             if [ -d "$MOUNT_POINT/$folder" ]; then
                 cp -r "$MOUNT_POINT/$folder" "$TARGET_DIR/"
                 log_info "  ✓ $folder"
             else
-                log_warning "  ✗ $folder не найдена на шаре"
+                log_warning "  ✗ $folder не найдена"
             fi
         done
         
         # Копируем выбранные опциональные папки
         if [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
-            log_info "Копирование выбранных модулей..."
+            log_info "Копирование выбранных модулей:"
             for folder in "${SELECTED_MODULES[@]}"; do
                 if [ -d "$MOUNT_POINT/$folder" ]; then
                     cp -r "$MOUNT_POINT/$folder" "$TARGET_DIR/"
                     log_info "  ✓ $folder"
                 else
-                    log_warning "  ✗ $folder не найдена на шаре"
+                    log_warning "  ✗ $folder не найдена"
                 fi
             done
         fi
         
-        # Копируем необходимые файлы из корня
-        log_info "Копирование общих файлов..."
+        # Копируем midasregMedOrg.cmd если есть
         if [ -f "$MOUNT_POINT/midasregMedOrg.cmd" ]; then
             cp "$MOUNT_POINT/midasregMedOrg.cmd" "$TARGET_DIR/"
         fi
-        if [ -f "$MOUNT_POINT/uninst.exe" ]; then
-            cp "$MOUNT_POINT/uninst
+        
+        # Права доступа
+        chown -R "$user:$user" "$home/.wine_medorg"
+        
+        # Отключаем шару
+        umount "$MOUNT_POINT"
+        rmdir "$MOUNT_POINT"
+        
+        log_success "Файлы скопированы"
+    else
+        log_error "Не удалось подключиться к сетевой шаре!"
+        log_info "Убедитесь что:"
+        echo "  1. Сервер 10.0.1.11 доступен"
+        echo "  2. Логин/пароль правильные"
+        echo "  3. Папка 'auto' существует на сервере"
+        exit 1
+    fi
+}
+
+# Регистрация библиотек
+register_libraries() {
+    local user="$1"
+    local home="$2"
+    
+    log_info "Регистрация библиотек..."
+    
+    sudo -u "$user" bash << USER_EOF
+export WINEPREFIX="\$HOME/.wine_medorg"
+export WINEARCH=win32
+
+# Копируем midas.dll
+if [ -f "\$WINEPREFIX/drive_c/MedCTech/MedOrg/Lib/midas.dll" ]; then
+    cp "\$WINEPREFIX/drive_c/MedCTech/MedOrg/Lib/midas.dll" "\$WINEPREFIX/drive_c/windows/system32/"
+    log_info "midas.dll скопирована"
+fi
+
+# Регистрируем в реестре
+cat > /tmp/medorg_reg.reg << 'REGEOF'
+REGEDIT4
+
+[HKEY_LOCAL_MACHINE\Software\Borland\Database Engine]
+"DLLPATH"="C:\\\\windows\\\\system32"
+"CONFIGFILE01"="C:\\\\windows\\\\system32\\\\DBE.CFG"
+
+[HKEY_LOCAL_MACHINE\Software\Borland\BLW32]
+"BLAPIPATH"="C:\\\\windows\\\\system32"
+
+[HKEY_LOCAL_MACHINE\Software\Wow6432Node\Borland\Database Engine]
+"DLLPATH"="C:\\\\windows\\\\system32"
+REGEOF
+
+wine regedit /tmp/medorg_reg.reg 2>/dev/null
+rm -f /tmp/medorg_reg.reg
+
+USER_EOF
+    
+    log_success "Библиотеки зарегистрированы"
+}
+
+# Создание ярлыков
+create_launchers() {
+    local user="$1"
+    local home="$2"
+    
+    log_info "Создание ярлыков..."
+    
+    # Создаем рабочий стол
+    DESKTOP_DIR="$home/Рабочий стол"
+    MEDORG_DESKTOP="$DESKTOP_DIR/Медицинские программы"
+    
+    sudo -u "$user" mkdir -p "$MEDORG_DESKTOP"
+    
+    # Создаем ярлыки для выбранных модулей
+    ALL_MODULES=("${SELECTED_MODULES[@]}")
+    
+    for module in "${ALL_MODULES[@]}"; do
+        # Проверяем что папка существует
+        if [ -d "$home/.wine_medorg/drive_c/MedCTech/MedOrg/$module" ]; then
+            sudo -u "$user" bash << USER_EOF
+cat > "$MEDORG_DESKTOP/${module}.desktop" << 'DESKTOPEOF'
+[Desktop Entry]
+Name=MedOrg ${module}
+Comment=Модуль ${module}
+Exec=bash -c "cd '$home/.wine_medorg/drive_c/MedCTech/MedOrg/${module}' && wine *.exe"
+Icon=wine
+Terminal=false
+Type=Application
+Categories=Medical;
+DESKTOPEOF
+chmod +x "$MEDORG_DESKTOP/${module}.desktop"
+USER_EOF
+            
+            log_info "  Создан ярлык: $module"
+        fi
+    done
+    
+    # Создаем лаунчер
+    sudo -u "$user" bash << 'USER_EOF'
+cat > "$home/medorg_launcher.sh" << 'LAUNCHEREOF'
+#!/bin/bash
+export WINEPREFIX="\$HOME/.wine_medorg"
+export WINEARCH=win32
+
+BASE="\$WINEPREFIX/drive_c/MedCTech/MedOrg"
+modules=()
+
+# Находим модули с exe файлами
+for dir in "\$BASE"/*/; do
+    if [ -d "\$dir" ] && [ -n "\$(find "\$dir" -name '*.exe' -type f 2>/dev/null)" ]; then
+        modules+=("\$(basename "\$dir")")
+    fi
+done
+
+if [ \${#modules[@]} -eq 0 ]; then
+    echo "Модули не найдены!"
+    exit 1
+fi
+
+echo "=== MedOrg Launcher ==="
+echo ""
+for i in "\${!modules[@]}"; do
+    echo "\$((i+1)). \${modules[\$i]}"
+done
+
+echo ""
+read -p "Выберите модуль (1-\${#modules[@]}): " choice
+
+if [[ "\$choice" =~ ^[0-9]+\$ ]] && [ "\$choice" -ge 1 ] && [ "\$choice" -le \${#modules[@]} ]; then
+    cd "\$BASE/\${modules[\$((choice-1))]}"
+    wine *.exe
+fi
+LAUNCHEREOF
+
+chmod +x "$home/medorg_launcher.sh"
+
+# Ярлык лаунчера
+cat > "$MEDORG_DESKTOP/MedOrg_Launcher.desktop" << 'DESKTOPEOF'
+[Desktop Entry]
+Name=MedOrg Launcher
+Comment=Запуск всех модулей
+Exec=$home/medorg_launcher.sh
+Icon=wine
+Terminal=true
+Type=Application
+Categories=Medical;
+DESKTOPEOF
+chmod +x "$MEDORG_DESKTOP/MedOrg_Launcher.desktop"
+USER_EOF
+    
+    log_success "Ярлыки созданы в: $MEDORG_DESKTOP"
+}
+
+# Извлечение иконок
+extract_icons() {
+    local user="$1"
+    local home="$2"
+    
+    log_info "Извлечение иконок..."
+    
+    sudo -u "$user" bash << 'USER_EOF'
+export WINEPREFIX="\$HOME/.wine_medorg"
+ICON_DIR="\$HOME/.local/share/icons/medorg"
+
+mkdir -p "\$ICON_DIR/64"
+
+ALL_MODULES=(${SELECTED_MODULES[@]})
+
+for module in "\${ALL_MODULES[@]}"; do
+    module_path="\$WINEPREFIX/drive_c/MedCTech/MedOrg/\$module"
+    exe_file=\$(find "\$module_path" -name "*.exe" -type f | head -1)
+    
+    if [ -n "\$exe_file" ]; then
+        cd "\$module_path"
+        if wrestool -x -o /tmp/\${module}.ico "\$(basename "\$exe_file")" 2>/dev/null; then
+            if magick /tmp/\${module}.ico "\$ICON_DIR/64/\${module}.png" 2>/dev/null; then
+                # Обновляем ярлык
+                if [ -f "$MEDORG_DESKTOP/\${module}.desktop" ]; then
+                    sed -i "s|^Icon=.*|Icon=\$ICON_DIR/64/\${module}.png|" "$MEDORG_DESKTOP/\${module}.desktop"
+                fi
+            fi
+            rm -f /tmp/\${module}.ico
+        fi
+    fi
+done
+USER_EOF
+    
+    log_success "Иконки извлечены"
+}
+
+# Завершение установки
+finish_installation() {
+    echo ""
+    echo "╔════════════════════════════════════════════════════╗"
+    echo "║        УСТАНОВКА ЗАВЕРШЕНА УСПЕШНО!               ║"
+    echo "╚════════════════════════════════════════════════════╝"
+    echo ""
+    echo "Установлено для пользователя: $TARGET_USER"
+    echo ""
+    echo "Обязательные модули:"
+    for folder in "${REQUIRED_FOLDERS[@]}"; do
+        echo "  ✓ $folder"
+    done
+    echo ""
+    
+    if [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
+        echo "Дополнительные модули:"
+        for module in "${SELECTED_MODULES[@]}"; do
+            echo "  ✓ $module"
+        done
+        echo ""
+    fi
+    
+    echo "Ярлыки созданы в:"
+    echo "  $TARGET_HOME/Рабочий стол/Медицинские программы/"
+    echo ""
+    echo "Для запуска:"
+    echo "  1. Войдите как пользователь '$TARGET_USER'"
+    echo "  2. На рабочем столе откройте 'Медицинские программы'"
+    echo "  3. Запустите нужный модуль двойным кликом"
+    echo ""
+    echo "Или из терминала:"
+    echo "  sudo -u $TARGET_USER -i"
+    echo "  ~/medorg_launcher.sh"
+    echo ""
+}
+
+# Основной процесс
+main() {
+    check_root
+    select_user
+    select_optional_modules
+    install_dependencies
+    setup_wine "$TARGET_USER" "$TARGET_HOME"
+    copy_files "$TARGET_USER" "$TARGET_HOME"
+    register_libraries "$TARGET_USER" "$TARGET_HOME"
+    create_launchers "$TARGET_USER" "$TARGET_HOME"
+    extract_icons "$TARGET_USER" "$TARGET_HOME"
+    finish_installation
+    
+    # Очистка
+    rm -rf "$INSTALL_DIR" 2>/dev/null
+}
+
+# Запуск
+main "$@"
