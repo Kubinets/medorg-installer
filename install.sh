@@ -98,7 +98,7 @@ check_root() {
     fi
 }
 
-# Выбор пользователя
+# Выбор пользователя (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 select_user() {
     echo ""
     echo -e "${BLUE}╔══════════════════════════════════════════════════╗${NC}"
@@ -106,14 +106,19 @@ select_user() {
     echo -e "${BLUE}╚══════════════════════════════════════════════════╝${NC}"
     echo ""
     
-    read -p "Введите имя пользователя для установки [meduser]: " USER
+    # Используем специальную переменную для read
+    exec 3<&0  # Сохраняем стандартный ввод
+    
+    # Явно читаем с терминала
+    read -p "Введите имя пользователя для установки [meduser]: " USER <&3
     USER=${USER:-meduser}
     
     if ! id "$USER" &>/dev/null; then
-        read -p "Создать пользователя '$USER'? (y/N): " -n 1 -r
-        echo
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo -n "Создать пользователя '$USER'? (y/N): "
+        read -r CREATE_USER <&3
+        if [[ $CREATE_USER =~ ^[Yy]$ ]]; then
             useradd -m -s /bin/bash "$USER"
+            echo "Установка пароля для пользователя '$USER':"
             passwd "$USER"
             success "Пользователь '$USER' создан"
         else
@@ -126,7 +131,7 @@ select_user() {
     success "Домашняя директория: $HOME_DIR"
 }
 
-# Выбор модулей
+# Выбор модулей (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 select_modules() {
     echo ""
     echo -e "${BLUE}╔══════════════════════════════════════════════════╗${NC}"
@@ -150,7 +155,8 @@ select_modules() {
     echo ""
     
     while true; do
-        read -p "Выберите модули (номера через пробел, 'a' или 'n'): " choices
+        echo -n "Выберите модули (номера через пробел, 'a' или 'n'): "
+        read -r choices <&3
         
         SELECTED_MODULES=()
         
@@ -193,6 +199,8 @@ select_modules() {
     for module in "${SELECTED_MODULES[@]}"; do
         echo "  • $module"
     done
+    
+    exec 3<&-  # Закрываем файловый дескриптор
 }
 
 # Основной процесс установки
