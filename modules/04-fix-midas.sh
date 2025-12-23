@@ -1,5 +1,5 @@
 #!/bin/bash
-# Исправление midas.dll - красивая версия
+# Исправление midas.dll - исправленная версия
 
 set -e
 
@@ -108,22 +108,27 @@ find_midas() {
     fi
 }
 
-# Создание символьных ссылок
+# Создание символьных ссылок (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 create_links() {
     print_section "СОЗДАНИЕ ССЫЛОК"
     
     typewriter "Создаем ссылки для регистрации DLL..." 0.03
     echo ""
     
-    cd "$LIB_DIR" || {
-        error "Не удалось перейти в $LIB_DIR"
+    # Переходим в директорию и создаем ссылки от имени пользователя
+    if [ ! -d "$LIB_DIR" ]; then
+        error "Директория $LIB_DIR не существует"
         return 1
-    }
+    fi
     
+    # Сначала устанавливаем правильные права
+    chown -R "$USER:$USER" "$LIB_DIR" 2>/dev/null || true
+    
+    # Создаем ссылки через sudo -u чтобы они были от имени пользователя
     local links_created=0
     local link_pairs=(
         "midas.dll MIDAS.DLL"
-        "midas.dll Midas.dll"
+        "midas.dll Midas.dll" 
         "midas.dll midas.DLL"
         "midas.dll MIDAS.dll"
         "midas.dll Midas.DLL"
@@ -136,14 +141,24 @@ create_links() {
         source_file=$(echo "$pair" | awk '{print $1}')
         link_name=$(echo "$pair" | awk '{print $2}')
         
-        if [ -f "$source_file" ]; then
+        if [ -f "$LIB_DIR/$source_file" ]; then
             echo -n "  $source_file → $link_name... "
-            if ln -sf "$source_file" "$link_name" 2>/dev/null; then
+            
+            # Создаем ссылку от имени пользователя
+            if sudo -u "$USER" bash -c "cd '$LIB_DIR' && ln -sf '$source_file' '$link_name'" 2>/dev/null; then
                 echo -e "${GREEN}✓${NC}"
                 links_created=$((links_created + 1))
             else
                 echo -e "${YELLOW}!${NC}"
+                # Пробуем альтернативный способ
+                cd "$LIB_DIR" && ln -sf "$source_file" "$link_name" 2>/dev/null && {
+                    chown "$USER:$USER" "$link_name" 2>/dev/null
+                    echo -e "  ${GREEN}(исправлено)${NC}"
+                    links_created=$((links_created + 1))
+                }
             fi
+        else
+            echo -e "  ${YELLOW}$source_file не найден${NC}"
         fi
     done
     
@@ -155,7 +170,7 @@ create_links() {
         # Показываем созданные ссылки
         echo ""
         log "Проверка созданных ссылок:"
-        ls -la "$LIB_DIR/"*[Mm][Ii][Dd][Aa][Ss]* 2>/dev/null | grep -E "midas|MIDAS|Midas" | while read -r line; do
+        sudo -u "$USER" bash -c "ls -la '$LIB_DIR/'*[Mm][Ii][Dd][Aa][Ss]* 2>/dev/null" | grep -E "midas|MIDAS|Midas" | while read -r line; do
             echo "  $line"
         done
     else
@@ -165,14 +180,15 @@ create_links() {
     return $links_created
 }
 
-# Создание reg файла
+# Создание reg файла (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 create_reg_file() {
     print_section "НАСТРОЙКА РЕЕСТРА WINE"
     
     typewriter "Создаем файл реестра для Borland Database Engine..." 0.03
     echo ""
     
-    local reg_file="/tmp/midas_fix_$$.reg"
+    # Создаем временный файл в домашней директории пользователя
+    local reg_file="$HOME_DIR/midas_fix.reg"
     
     cat > "$reg_file" << 'REGEOF'
 REGEDIT4
@@ -195,6 +211,7 @@ REGEDIT4
 REGEOF
     
     if [ -f "$reg_file" ]; then
+        chown "$USER:$USER" "$reg_file"
         success "Файл реестра создан"
         echo -e "  ${GREEN}→${NC} $reg_file"
         
@@ -212,7 +229,7 @@ REGEOF
     fi
 }
 
-# Применение реестра
+# Применение реестра (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 apply_registry() {
     local reg_file="$1"
     
@@ -224,14 +241,10 @@ apply_registry() {
         return 1
     fi
     
-    # Экспортируем переменные Wine
-    export WINEPREFIX="$HOME_DIR/.wine_medorg"
-    export WINEARCH=win32
-    export WINEDEBUG=-all
-    
     echo -ne "\n  ${BLUE}Загрузка в реестр Wine...${NC} "
     
-    if sudo -u "$USER" wine regedit "$reg_file" 2>/dev/null; then
+    # Запускаем от имени пользователя с правильными переменными окружения
+    if sudo -u "$USER" env WINEPREFIX="$HOME_DIR/.wine_medorg" WINEARCH=win32 wine regedit "$reg_file" 2>/dev/null; then
         echo -e "${GREEN}✓${NC}"
         
         # Проверяем добавленные ключи
@@ -240,37 +253,49 @@ apply_registry() {
         
         # Создаем скрипт для проверки реестра
         local check_script="/tmp/check_reg_$$.sh"
-        cat > "$check_script" << 'EOF'
+        cat > "$check_script" << EOF
 #!/bin/bash
-wine reg query "HKLM\\Software\\Borland\\Database Engine" 2>/dev/null | grep -i "dllpath\|syspath" || echo "  (ключи не найдены)"
+export WINEPREFIX="$HOME_DIR/.wine_medorg"
+export WINEARCH=win32
+wine reg query "HKLM\\\\Software\\\\Borland\\\\Database Engine" 2>/dev/null | grep -i "dllpath\|syspath" || echo "  (ключи не найдены)"
 EOF
         chmod +x "$check_script"
         
-        if sudo -u "$USER" bash "$check_script" | while read -r line; do
+        if sudo -u "$USER" bash "$check_script" 2>/dev/null | while read -r line; do
             echo "  $line"
         done; then
             echo "  ${GREEN}✓ Записи реестра применены${NC}"
+        else
+            echo "  ${YELLOW}! Не удалось проверить записи реестра${NC}"
         fi
         
-        rm -f "$check_script"
+        rm -f "$check_script" 2>/dev/null
         
         return 0
     else
         echo -e "${YELLOW}!${NC}"
         warning "Не удалось применить реестр автоматически"
+        
+        # Предлагаем альтернативный способ
+        echo ""
+        echo -e "${BLUE}Альтернативный способ:${NC}"
+        echo "  1. Войдите как пользователь $USER"
+        echo "  2. Выполните: wine regedit $reg_file"
+        echo "  3. Вручную импортируйте файл реестра"
+        
         return 1
     fi
 }
 
 # Создание скрипта ручного исправления
 create_fix_script() {
-    local script_path="$HOME_DIR/fix_midas_manually.sh"
+    local script_path="$HOME_DIR/fix_midas_case.sh"
     
     log "Создание скрипта ручного исправления..."
     
-    cat > "$script_path" << 'EOF'
+    cat > "$script_path" << EOF
 #!/bin/bash
-# Ручное исправление midas.dll
+# Ручное исправление midas.dll (проблемы с регистром)
 
 echo ""
 echo "╔══════════════════════════════════════════════════╗"
@@ -278,33 +303,33 @@ echo "║        РУЧНОЕ ИСПРАВЛЕНИЕ MIDAS.DLL            ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 
-USER=$(whoami)
-HOME_DIR="$HOME"
-LIB_DIR="$HOME_DIR/.wine_medorg/drive_c/MedCTech/MedOrg/Lib"
+USER="\$(whoami)"
+HOME_DIR="\$HOME"
+LIB_DIR="\$HOME_DIR/.wine_medorg/drive_c/MedCTech/MedOrg/Lib"
 
-echo "Пользователь: $USER"
-echo "Путь к библиотекам: $LIB_DIR"
+echo "Пользователь: \$USER"
+echo "Путь к библиотекам: \$LIB_DIR"
 echo ""
 
 # Проверяем существование midas.dll
-if [ ! -f "$LIB_DIR/midas.dll" ]; then
-    echo "❌ Ошибка: midas.dll не найдена в $LIB_DIR"
+if [ ! -f "\$LIB_DIR/midas.dll" ]; then
+    echo "❌ Ошибка: midas.dll не найдена в \$LIB_DIR"
     echo ""
     echo "Возможные решения:"
     echo "1. Убедитесь, что программы установлены"
-    echo "2. Проверьте путь: $LIB_DIR"
+    echo "2. Проверьте путь: \$LIB_DIR"
     echo "3. Скопируйте midas.dll вручную"
     exit 1
 fi
 
-echo "Шаг 1: Создание ссылок"
-echo "──────────────────────"
-cd "$LIB_DIR"
+echo "Шаг 1: Создание ссылок с разным регистром"
+echo "─────────────────────────────────────────"
+cd "\$LIB_DIR"
 
 links=("MIDAS.DLL" "Midas.dll" "midas.DLL" "MIDAS.dll" "Midas.DLL")
-for link in "${links[@]}"; do
-    echo -n "  midas.dll → $link... "
-    if ln -sf midas.dll "$link" 2>/dev/null; then
+for link in "\${links[@]}"; do
+    echo -n "  midas.dll → \$link... "
+    if ln -sf midas.dll "\$link" 2>/dev/null; then
         echo "✓"
     else
         echo "⚠"
@@ -314,7 +339,7 @@ done
 echo ""
 echo "Шаг 2: Создание файла реестра"
 echo "─────────────────────────────"
-cat > /tmp/midas_fix.reg << 'REGEOF'
+cat > "\$HOME_DIR/midas_fix.reg" << 'REGEOF'
 REGEDIT4
 
 [HKEY_LOCAL_MACHINE\Software\Borland\Database Engine]
@@ -324,21 +349,24 @@ REGEDIT4
 "BLAPIPATH"="C:\\MedCTech\\MedOrg\\Lib"
 REGEOF
 
-echo "  Файл реестра создан: /tmp/midas_fix.reg"
+echo "  Файл реестра создан: \$HOME_DIR/midas_fix.reg"
 
 echo ""
 echo "Шаг 3: Применение реестра"
 echo "─────────────────────────"
-export WINEPREFIX="$HOME_DIR/.wine_medorg"
+export WINEPREFIX="\$HOME_DIR/.wine_medorg"
 export WINEARCH=win32
 
 echo -n "  Загрузка в реестр Wine... "
-if wine regedit /tmp/midas_fix.reg 2>/dev/null; then
+if wine regedit "\$HOME_DIR/midas_fix.reg" 2>/dev/null; then
     echo "✓"
 else
     echo "⚠"
-    echo "  Попробуйте запустить вручную:"
-    echo "  wine regedit /tmp/midas_fix.reg"
+    echo ""
+    echo "  Вручную:"
+    echo "  1. Откройте терминал"
+    echo "  2. Выполните: wine regedit"
+    echo "  3. Файл → Импорт → выберите midas_fix.reg"
 fi
 
 echo ""
@@ -384,10 +412,12 @@ main() {
             success "Реестр успешно применен"
         else
             warning "Реестр не применен автоматически"
+            echo ""
+            echo -e "${YELLOW}Для ручного применения реестра:${NC}"
+            echo "  sudo -u $USER wine regedit $reg_file"
         fi
-        
-        # Удаляем временный файл
-        rm -f "$reg_file" 2>/dev/null
+    else
+        warning "Не удалось создать файл реестра"
     fi
     
     # Шаг 5: Создание скрипта для ручного исправления
@@ -404,7 +434,7 @@ main() {
     echo -e "${BLUE}─────────────────────${NC}"
     echo -e "  ${GREEN}•${NC} Найдена библиотека midas.dll"
     echo -e "  ${GREEN}•${NC} Созданы символьные ссылки"
-    echo -e "  ${GREEN}•${NC} Добавлены записи в реестр Wine"
+    echo -e "  ${GREEN}•${NC} Создан файл реестра"
     echo -e "  ${GREEN}•${NC} Создан скрипт ручного исправления"
     echo ""
     echo -e "${CYAN}Расположение:${NC}"
@@ -412,7 +442,7 @@ main() {
     echo -e "  ${YELLOW}$LIB_DIR/${NC}"
     echo ""
     echo -e "${BLUE}Для ручного исправления выполните:${NC}"
-    echo -e "${YELLOW}  sudo -u $USER $HOME_DIR/fix_midas_manually.sh${NC}"
+    echo -e "${YELLOW}  $HOME_DIR/fix_midas_case.sh${NC}"
     echo ""
     
     # Автовыход через 2 секунды
