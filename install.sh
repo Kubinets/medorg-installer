@@ -117,14 +117,16 @@ check_root() {
 
 # Парсинг аргументов командной строки
 parse_args() {
-    USER="meduser"
+    USER=""  # Пустое значение по умолчанию
     SELECTED_MODULES=()
     AUTO_MODE=false
+    USER_SPECIFIED=false  # Флаг, указывающий, что пользователь указан через аргумент
     
     while [[ $# -gt 0 ]]; do
         case $1 in
             --user)
                 USER="$2"
+                USER_SPECIFIED=true
                 shift 2
                 ;;
             --modules)
@@ -140,6 +142,7 @@ parse_args() {
             --auto)
                 AUTO_MODE=true
                 USER="meduser"
+                USER_SPECIFIED=true
                 SELECTED_MODULES=()
                 shift
                 ;;
@@ -148,7 +151,7 @@ parse_args() {
                 echo "  curl -sSL https://.../install.sh | sudo bash -- [ОПЦИИ]"
                 echo ""
                 echo "Опции:"
-                echo "  --user ИМЯ        Имя пользователя (по умолчанию: meduser)"
+                echo "  --user ИМЯ        Имя пользователя (по умолчанию: будет предложено выбрать)"
                 echo "  --modules СПИСОК  Модули через запятую, 'all' или 'none'"
                 echo "  --auto            Автоматическая установка с параметрами по умолчанию"
                 echo "  -h, --help        Показать эту справку"
@@ -171,55 +174,76 @@ parse_args() {
     done
 }
 
-# Выбор пользователя (обновленная версия)
+# Выбор пользователя (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 select_user() {
-    if [[ "$AUTO_MODE" == true ]] || [[ "$INPUT_METHOD" == "args" ]]; then
-        # Используем аргументы или авто-режим
-        log "Пользователь установлен: $USER"
-    else
-        # Интерактивный режим
+    # Если пользователь не указан через аргументы, всегда запрашиваем выбор
+    if [[ "$USER_SPECIFIED" != true ]]; then
         echo ""
         echo -e "${BLUE}╔══════════════════════════════════════════════════╗${NC}"
         echo -e "${BLUE}║           ВЫБОР ПОЛЬЗОВАТЕЛЯ                    ║${NC}"
         echo -e "${BLUE}╚══════════════════════════════════════════════════╝${NC}"
         echo ""
         
-        # Используем /dev/tty для чтения с терминала
-        exec < /dev/tty
+        # Показываем существующих пользователей
+        echo "Существующие пользователи в системе:"
+        echo "-----------------------------------"
+        # Показываем только пользователей с домашней директорией (обычные пользователи)
+        getent passwd | grep -E ':/home/' | cut -d: -f1 | sort | column -c 80
+        echo ""
         
-        read -p "Введите имя пользователя для установки [meduser]: " input_user
-        USER="${input_user:-meduser}"
+        if [[ "$INPUT_METHOD" == "args" ]]; then
+            # В режиме пайпа читаем с терминала
+            exec < /dev/tty
+        fi
+        
+        while true; do
+            read -p "Введите имя пользователя для установки (или 'new' для создания нового) [meduser]: " input_user
+            
+            USER="${input_user:-meduser}"
+            
+            if [[ "$USER" == "new" ]]; then
+                read -p "Введите имя нового пользователя: " new_user
+                if [[ -n "$new_user" ]]; then
+                    USER="$new_user"
+                    break
+                else
+                    warning "Имя пользователя не может быть пустым!"
+                fi
+            elif [[ -n "$USER" ]]; then
+                break
+            fi
+        done
     fi
     
     # Проверка/создание пользователя
     if ! id "$USER" &>/dev/null; then
+        echo ""
+        echo -e "${YELLOW}Пользователь '$USER' не существует.${NC}"
+        
         if [[ "$AUTO_MODE" == true ]]; then
             # Автоматически создаем пользователя
             useradd -m -s /bin/bash "$USER"
             echo "$USER:$USER" | chpasswd  # Пароль = имя пользователя
             success "Пользователь '$USER' создан автоматически"
-        elif [[ "$INPUT_METHOD" == "args" ]]; then
-            warning "Пользователь '$USER' не существует."
-            read -p "Создать пользователя '$USER'? (y/N): " -n 1 -r < /dev/tty
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                useradd -m -s /bin/bash "$USER"
-                passwd "$USER"
-                success "Пользователь '$USER' создан"
-            else
-                error "Пользователь не существует"
-            fi
         else
-            read -p "Создать пользователя '$USER'? (y/N): " -n 1 -r
+            # Спрашиваем, создавать ли нового пользователя
+            if [[ "$INPUT_METHOD" == "args" ]]; then
+                exec < /dev/tty
+            fi
+            
+            read -p "Создать нового пользователя '$USER'? (Y/n): " -n 1 -r
             echo
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
+            if [[ $REPLY =~ ^[Nn]$ ]]; then
+                error "Установка отменена. Пользователь не существует."
+            else
                 useradd -m -s /bin/bash "$USER"
+                echo "Установка пароля для пользователя '$USER':"
                 passwd "$USER"
                 success "Пользователь '$USER' создан"
-            else
-                error "Пользователь не существует"
             fi
         fi
+    else
+        success "Используем существующего пользователя: $USER"
     fi
     
     HOME_DIR=$(getent passwd "$USER" | cut -d: -f6)
