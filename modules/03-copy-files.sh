@@ -1,63 +1,58 @@
 #!/bin/bash
 # Копирование программы
 
-copy_program() {
-    local user="$1"
-    local choice="$2"
-    local home="$(getent passwd "$user" | cut -d: -f6)"
+log() { echo -e "\033[0;34m[INFO]\033[0m $1"; }
+success() { echo -e "\033[0;32m✓\033[0m $1"; }
+warning() { echo -e "\033[1;33m!\033[0m $1"; }
+
+copy_files() {
+    log "Подключение к сетевой шаре..."
     
-    echo "Копирование программы..."
-    
-    # Определяем какие папки копировать
-    case "$choice" in
-        1) FOLDERS=("StatStac" "StatPol" "StatYear") ;;
-        2) FOLDERS=("RegPol" "RegPeople") ;;
-        3) FOLDERS=("WrachPol" "DopDisp") ;;
-        4) FOLDERS=("BolList" "DayStac" "Dispanser" "DopDisp" "OtdelStac" 
-                   "Pokoy" "RegPeople" "RegPol" "StatPol" "StatStac" 
-                   "StatYear" "WrachPol") ;;
-        *) FOLDERS=("StatStac") ;;
-    esac
-    
-    # Обязательные папки
-    REQUIRED=("Lib" "LibDRV" "LibLinux")
-    
-    # Монтируем
     MNT="/tmp/medorg_mount"
     mkdir -p "$MNT"
     
-    mount -t cifs //10.0.1.11/auto "$MNT" -o username=Администратор,password=Ybyjxrf30lh* || {
-        echo "Ошибка подключения к сетевой шаре"
-        return 1
-    }
-    
-    # Целевая папка
-    TARGET="$home/.wine_medorg/drive_c/MedCTech/MedOrg"
-    mkdir -p "$TARGET"
-    
-    # Копируем обязательные
-    for folder in "${REQUIRED[@]}"; do
-        if [ -d "$MNT/$folder" ]; then
-            cp -r "$MNT/$folder" "$TARGET/"
+    if mount -t cifs //10.0.1.11/auto "$MNT" -o username=Администратор,password=Ybyjxrf30lh* 2>/dev/null; then
+        log "Сетевая шара подключена"
+        
+        # Копируем обязательные папки
+        for folder in "${REQUIRED[@]}"; do
+            if [ -d "$MNT/$folder" ]; then
+                cp -r "$MNT/$folder" "$TARGET_DIR/"
+                log "  ✓ $folder"
+            else
+                warning "  ✗ $folder не найдена"
+            fi
+        done
+        
+        # Копируем выбранные модули
+        if [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
+            for folder in "${SELECTED_MODULES[@]}"; do
+                if [ -d "$MNT/$folder" ]; then
+                    cp -r "$MNT/$folder" "$TARGET_DIR/"
+                    log "  ✓ $folder"
+                else
+                    warning "  ✗ $folder не найдена"
+                fi
+            done
         fi
-    done
-    
-    # Копируем выбранные
-    for folder in "${FOLDERS[@]}"; do
-        if [ -d "$MNT/$folder" ]; then
-            cp -r "$MNT/$folder" "$TARGET/"
+        
+        # Копируем общие файлы
+        if [ -f "$MNT/midasregMedOrg.cmd" ]; then
+            cp "$MNT/midasregMedOrg.cmd" "$TARGET_DIR/"
         fi
-    done
-    
-    # Отключаем
-    umount "$MNT"
-    
-    # Права
-    chown -R "$user:$user" "$home/.wine_medorg"
-    
-    echo "Программа скопирована"
+        
+        umount "$MNT"
+        chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.wine_medorg"
+        
+        success "Файлы скопированы"
+    else
+        warning "Не удалось подключиться к сетевой шаре"
+    fi
 }
 
-if [ $# -eq 2 ]; then
-    copy_program "$1" "$2"
+# Проверяем переменные
+if [ -n "$TARGET_USER" ] && [ -n "$TARGET_HOME" ]; then
+    TARGET_DIR="$TARGET_HOME/.wine_medorg/drive_c/MedCTech/MedOrg"
+    mkdir -p "$TARGET_DIR"
+    copy_files
 fi

@@ -1,32 +1,24 @@
 #!/bin/bash
 # Исправление midas.dll
 
+log() { echo -e "\033[0;34m[INFO]\033[0m $1"; }
+success() { echo -e "\033[0;32m✓\033[0m $1"; }
+
 fix_midas() {
-    local user="$1"
-    local home="$(getent passwd "$user" | cut -d: -f6)"
+    log "Исправление midas.dll..."
     
-    echo "Исправление midas.dll..."
+    LIB_DIR="$TARGET_HOME/.wine_medorg/drive_c/MedCTech/MedOrg/Lib"
     
-    # Пути
-    LIB_DIR="$home/.wine_medorg/drive_c/MedCTech/MedOrg/Lib"
-    SYSTEM32="$home/.wine_medorg/drive_c/windows/system32"
-    
-    # Создаем ссылки для регистра
     if [ -f "$LIB_DIR/midas.dll" ]; then
+        # Ссылки для регистра
         cd "$LIB_DIR"
         ln -sf midas.dll MIDAS.DLL
         ln -sf midas.dll Midas.dll
-    fi
-    
-    # В system32
-    cp -f "$LIB_DIR/midas.dll" "$SYSTEM32/" 2>/dev/null
-    cd "$SYSTEM32"
-    ln -sf midas.dll MIDAS.DLL 2>/dev/null
-    ln -sf midas.dll Midas.dll 2>/dev/null
-    
-    # Реестр
-    sudo -u "$user" env WINEPREFIX="$home/.wine_medorg" bash << 'EOF'
-cat > /tmp/midas.reg << 'REGEOF'
+        ln -sf midas.dll midas.DLL
+        
+        # Реестр
+        sudo -u "$TARGET_USER" env WINEPREFIX="$TARGET_HOME/.wine_medorg" bash << 'EOF'
+cat > /tmp/midas_fix.reg << 'REGEOF'
 REGEDIT4
 
 [HKEY_LOCAL_MACHINE\Software\Borland\Database Engine]
@@ -36,12 +28,15 @@ REGEDIT4
 "BLAPIPATH"="C:\\MedCTech\\MedOrg\\Lib"
 REGEOF
 
-wine regedit /tmp/midas.reg 2>/dev/null
+wine regedit /tmp/midas_fix.reg 2>/dev/null
 EOF
-    
-    echo "midas.dll исправлена"
+        
+        success "midas.dll исправлена"
+    else
+        log "midas.dll не найдена"
+    fi
 }
 
-if [ $# -eq 1 ]; then
-    fix_midas "$1"
+if [ -n "$TARGET_USER" ] && [ -n "$TARGET_HOME" ]; then
+    fix_midas
 fi

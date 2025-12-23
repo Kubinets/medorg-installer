@@ -1,62 +1,80 @@
 
-## MedOrg Installer
+# MedOrg Installer
 
-Автоматический установщик медицинской программы MedOrg для RedOS/RHEL/CentOS.
+Автоматический установщик медицинской программы MedOrg.
 
-## Быстрая установка (одна команда)
-
-bash
-```
-curl -sSL https://raw.githubusercontent.com/ваш-логин/medorg-installer/main/install.sh | sudo bash
-```
-
-Или с wget:
+## Быстрая установка
 
 bash
+```
+curl -sSL https://raw.githubusercontent.com/kubinets/medorg-installer/main/install.sh | sudo bash
+```
+
+## Особенности
+
+- Анимированный интерфейс с эффектом печатающей машинки
+- Автоматическая установка всех зависимостей
+- Настройка Wine с необходимыми компонентами
+- Копирование программы с сетевой шары
+- Исправление проблем с midas.dll (регистр букв)
+- Создание ярлыков на рабочем столе
+
+## Все модули
+
+text
 
 ```
-wget -q -O - https://raw.githubusercontent.com/ваш-логин/medorg-installer/main/install.sh | sudo bash
+Admin           BolList         DayStac         Dispanser
+DopDisp         Econ            EconRA          EconRost
+Fluoro          Kiosk           KTFOMSAgentDisp KTFOMSAgentGosp
+KTFOMSAgentPolis KTFOMSAgentReg KubNaprAgent    MainSestStac
+MedOsm          MISAgent        OtdelStac       Pokoy
+RegPeople       RegPol          San             SanDoc
+SpravkaOMS      StatPol         StatStac        StatYear
+Tablo           Talon           Vedom           VistaAgent
+WrachPol
 ```
 
-## Что делает установщик:
+## Обязательные модули (устанавливаются всегда)
 
-1. Устанавливает все зависимости (Wine, библиотеки)
-2. Настраивает Wine окружение
-3. Подключается к сетевой шаре 
-4. Копирует программу MedOrg
-5. Регистрирует необходимые библиотеки
-6. Создает ярлыки на рабочем столе
-7. Извлекает иконки из EXE файлов
+- Lib
+- LibDRV
+- LibLinux
 
-## Требования:
+## Использование
+
+1. Запустите установщик с правами root
+2. Введите имя пользователя
+3. Выберите модули для установки
+4. После установки войдите под указанным пользователем
+5. Запускайте программы из папки "Медицинские программы" на рабочем столе
+
+## Исправление проблем
+
+Если возникают проблемы с midas.dll:
+
+bash
+
+```
+~/fix_midas_case.sh
+```
+
+## Требования
 
 - RedOS 7+ / RHEL 8+ / CentOS 8+
-- Доступ в интернет
+- Права root (sudo)
 - Доступ к сетевой шаре 
-- Права администратора (sudo)
 
-## Использование:
+## Структура проекта
 
-После установки:
-
-1. Войдите под указанным пользователем
-2. На рабочем столе откройте папку "Медицинские программы"
-3. Запустите нужный модуль двойным кликом
-
-Или из терминала:
-
-bash
-
-```
-~/medorg_launcher.sh
-```
-
-## Структура проекта:
-
-- `install.sh` \- главный установочный скрипт
+- `install.sh` \- главный скрипт
 - `modules/` \- модули установки
-- `icons/` \- иконки (опционально)
+	- `01-dependencies.sh` \- зависимости
+	- `02-wine-setup.sh` \- настройка Wine
+	- `03-copy-files.sh` \- копирование файлов
+	- `04-fix-midas.sh` \- исправление midas.dll
+	- `05-create-shortcuts.sh` \- создание ярлыков
 
 ## Лицензия
 
-MIT
+MIT License

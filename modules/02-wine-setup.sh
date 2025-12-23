@@ -1,22 +1,24 @@
 #!/bin/bash
 # Настройка Wine
 
+log() { echo -e "\033[0;34m[INFO]\033[0m $1"; }
+success() { echo -e "\033[0;32m✓\033[0m $1"; }
+
 setup_wine() {
     local user="$1"
-    local home="$(getent passwd "$user" | cut -d: -f6)"
+    local home="$2"
     
-    echo "Настройка Wine для $user..."
+    log "Настройка Wine для $user..."
     
-    # Создаем префикс
-    sudo -u "$user" env WINEPREFIX="$home/.wine_medorg" WINEARCH=win32 wineboot --init 2>/dev/null
+    sudo -u "$user" env WINEPREFIX="$home/.wine_medorg" WINEARCH=win32 \
+        wineboot --init 2>/dev/null
     
-    # Компоненты
     sudo -u "$user" env WINEPREFIX="$home/.wine_medorg" WINEARCH=win32 \
         winetricks -q corefonts vcrun6 mdac28 2>/dev/null
     
-    echo "Wine настроен"
+    success "Wine настроен"
 }
 
-if [ $# -eq 1 ]; then
-    setup_wine "$1"
+if [ -n "$TARGET_USER" ] && [ -n "$TARGET_HOME" ]; then
+    setup_wine "$TARGET_USER" "$TARGET_HOME"
 fi
