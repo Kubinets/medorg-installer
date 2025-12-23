@@ -1,5 +1,5 @@
 #!/bin/bash
-# Исправление midas.dll - красивая версия
+# Исправление midas.dll - FIXED VERSION
 
 set -e
 
@@ -115,6 +115,11 @@ create_links() {
     typewriter "Создаем ссылки для регистрации DLL..." 0.03
     echo ""
     
+    if [ ! -d "$LIB_DIR" ]; then
+        error "Директория $LIB_DIR не существует"
+        return 1
+    fi
+    
     cd "$LIB_DIR" || {
         error "Не удалось перейти в $LIB_DIR"
         return 1
@@ -157,7 +162,7 @@ create_links() {
         log "Проверка созданных ссылок:"
         ls -la "$LIB_DIR/"*[Mm][Ii][Dd][Aa][Ss]* 2>/dev/null | grep -E "midas|MIDAS|Midas" | while read -r line; do
             echo "  $line"
-        done
+        done || true
     else
         warning "Не удалось создать ни одной ссылки"
     fi
@@ -242,11 +247,15 @@ apply_registry() {
         local check_script="/tmp/check_reg_$$.sh"
         cat > "$check_script" << 'EOF'
 #!/bin/bash
+export WINEPREFIX="$1"
+export WINEARCH=win32
+export WINEDEBUG=-all
+
 wine reg query "HKLM\\Software\\Borland\\Database Engine" 2>/dev/null | grep -i "dllpath\|syspath" || echo "  (ключи не найдены)"
 EOF
         chmod +x "$check_script"
         
-        if sudo -u "$USER" bash "$check_script" | while read -r line; do
+        if sudo -u "$USER" bash "$check_script" "$WINEPREFIX" | while read -r line; do
             echo "  $line"
         done; then
             echo "  ${GREEN}✓ Записи реестра применены${NC}"
@@ -268,7 +277,7 @@ create_fix_script() {
     
     log "Создание скрипта ручного исправления..."
     
-    cat > "$script_path" << 'EOF'
+    cat > "$script_path" << EOF
 #!/bin/bash
 # Ручное исправление midas.dll
 
@@ -278,33 +287,33 @@ echo "║        РУЧНОЕ ИСПРАВЛЕНИЕ MIDAS.DLL            ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 
-USER=$(whoami)
-HOME_DIR="$HOME"
-LIB_DIR="$HOME_DIR/.wine_medorg/drive_c/MedCTech/MedOrg/Lib"
+USER="$USER"
+HOME_DIR="$HOME_DIR"
+LIB_DIR="\$HOME_DIR/.wine_medorg/drive_c/MedCTech/MedOrg/Lib"
 
-echo "Пользователь: $USER"
-echo "Путь к библиотекам: $LIB_DIR"
+echo "Пользователь: \$USER"
+echo "Путь к библиотекам: \$LIB_DIR"
 echo ""
 
 # Проверяем существование midas.dll
-if [ ! -f "$LIB_DIR/midas.dll" ]; then
-    echo "❌ Ошибка: midas.dll не найдена в $LIB_DIR"
+if [ ! -f "\$LIB_DIR/midas.dll" ]; then
+    echo "❌ Ошибка: midas.dll не найдена в \$LIB_DIR"
     echo ""
     echo "Возможные решения:"
     echo "1. Убедитесь, что программы установлены"
-    echo "2. Проверьте путь: $LIB_DIR"
+    echo "2. Проверьте путь: \$LIB_DIR"
     echo "3. Скопируйте midas.dll вручную"
     exit 1
 fi
 
 echo "Шаг 1: Создание ссылок"
 echo "──────────────────────"
-cd "$LIB_DIR"
+cd "\$LIB_DIR"
 
 links=("MIDAS.DLL" "Midas.dll" "midas.DLL" "MIDAS.dll" "Midas.DLL")
-for link in "${links[@]}"; do
-    echo -n "  midas.dll → $link... "
-    if ln -sf midas.dll "$link" 2>/dev/null; then
+for link in "\${links[@]}"; do
+    echo -n "  midas.dll → \$link... "
+    if ln -sf midas.dll "\$link" 2>/dev/null; then
         echo "✓"
     else
         echo "⚠"
@@ -329,7 +338,7 @@ echo "  Файл реестра создан: /tmp/midas_fix.reg"
 echo ""
 echo "Шаг 3: Применение реестра"
 echo "─────────────────────────"
-export WINEPREFIX="$HOME_DIR/.wine_medorg"
+export WINEPREFIX="\$HOME_DIR/.wine_medorg"
 export WINEARCH=win32
 
 echo -n "  Загрузка в реестр Wine... "

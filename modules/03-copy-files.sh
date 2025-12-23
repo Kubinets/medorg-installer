@@ -1,5 +1,5 @@
 #!/bin/bash
-# Копирование программы с настройкой сетевой папки
+# Копирование программы с настройкой сетевой папки - FIXED
 
 set -e
 
@@ -14,6 +14,14 @@ log() { echo -e "${BLUE}[INFO]${NC} $1"; }
 success() { echo -e "${GREEN}✓${NC} $1"; }
 warning() { echo -e "${YELLOW}!${NC} $1"; }
 error() { echo -e "${RED}✗${NC} $1"; }
+
+# Определяем массивы модулей из экспортированных переменных
+REQUIRED=(${REQUIRED[@]})
+if [ ${#SELECTED_MODULES[@]} -eq 0 ]; then
+    SELECTED_MODULES=()
+else
+    SELECTED_MODULES=(${SELECTED_MODULES[@]})
+fi
 
 # Красивая рамка
 print_section() {
@@ -210,7 +218,7 @@ copy_files() {
         # Копируем общие файлы
         echo ""
         log "Общие файлы:"
-        local common_files=("midasregMedOrg.cmd" "readme.txt" "*.exe" "*.bat")
+        local common_files=("midasregMedOrg.cmd" "readme.txt")
         local files_copied=0
         
         for pattern in "${common_files[@]}"; do
@@ -302,11 +310,22 @@ main() {
     # Проверяем, установлен ли cifs-utils
     if ! command -v mount.cifs >/dev/null 2>&1; then
         warning "cifs-utils не установлен, пытаемся установить..."
-        apt-get update && apt-get install -y cifs-utils 2>/dev/null || {
-            error "Не удалось установить cifs-utils"
-            echo "Установите вручную: sudo apt-get install cifs-utils"
+        if command -v dnf >/dev/null 2>&1; then
+            dnf install -y cifs-utils 2>/dev/null || {
+                error "Не удалось установить cifs-utils"
+                echo "Установите вручную: sudo dnf install cifs-utils"
+                exit 1
+            }
+        elif command -v apt-get >/dev/null 2>&1; then
+            apt-get update && apt-get install -y cifs-utils 2>/dev/null || {
+                error "Не удалось установить cifs-utils"
+                echo "Установите вручную: sudo apt-get install cifs-utils"
+                exit 1
+            }
+        else
+            error "Не найден менеджер пакетов для установки cifs-utils"
             exit 1
-        }
+        fi
     fi
     
     # Запускаем копирование

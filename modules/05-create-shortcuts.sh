@@ -1,5 +1,5 @@
 #!/bin/bash
-# Создание ярлыков - красивая версия
+# Создание ярлыков - FIXED VERSION
 
 set -e
 
@@ -142,8 +142,10 @@ create_shortcuts() {
     fi
     
     # Определяем какие модули создавать
+    REQUIRED_MODULES=("Lib" "LibDRV" "LibLinux")
+    
     if [ -z "${SELECTED_MODULES+x}" ] || [ ${#SELECTED_MODULES[@]} -eq 0 ]; then
-        MODULES=("Lib" "LibDRV" "LibLinux")
+        MODULES=("${REQUIRED_MODULES[@]}")
         echo -e "${YELLOW}Использую обязательные модули:${NC}"
         for module in "${MODULES[@]}"; do
             echo -e "  ${CYAN}•${NC} $module"
@@ -338,7 +340,7 @@ create_helper_scripts() {
     
     # Скрипт исправления прав
     echo -ne "  ${BLUE}Скрипт исправления прав...${NC} "
-    cat > "$PROGRAM_DIR/Исправить_права.sh" << 'EOF'
+    cat > "$PROGRAM_DIR/Исправить_права.sh" << EOF
 #!/bin/bash
 # Скрипт исправления прав доступа
 
@@ -348,26 +350,26 @@ echo "║          ИСПРАВЛЕНИЕ ПРАВ ДОСТУПА             �
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 
-USER=$(whoami)
-HOME_DIR="$HOME"
-WINE_PREFIX="$HOME_DIR/.wine_medorg"
+USER="$USER"
+HOME_DIR="$HOME_DIR"
+WINE_PREFIX="\$HOME_DIR/.wine_medorg"
 
-echo "Пользователь: $USER"
-echo "Wine prefix: $WINE_PREFIX"
+echo "Пользователь: \$USER"
+echo "Wine prefix: \$WINE_PREFIX"
 echo ""
 
 echo "▌ Исправление прав доступа..."
 echo -n "  Проверка директории... "
 
-if [ -d "$WINE_PREFIX" ]; then
+if [ -d "\$WINE_PREFIX" ]; then
     echo "✓"
     
     echo -n "  Установка прав... "
-    if chown -R "$USER:$USER" "$WINE_PREFIX" 2>/dev/null; then
+    if chown -R "\$USER:\$USER" "\$WINE_PREFIX" 2>/dev/null; then
         echo "✓"
         
         echo -n "  Установка разрешений... "
-        if chmod -R 755 "$WINE_PREFIX" 2>/dev/null; then
+        if chmod -R 755 "\$WINE_PREFIX" 2>/dev/null; then
             echo "✓"
         else
             echo "⚠"
@@ -394,7 +396,7 @@ EOF
     
     # Скрипт переустановки Wine
     echo -ne "  ${BLUE}Скрипт переустановки Wine...${NC} "
-    cat > "$PROGRAM_DIR/Переустановить_Wine.sh" << 'EOF'
+    cat > "$PROGRAM_DIR/Переустановить_Wine.sh" << EOF
 #!/bin/bash
 # Скрипт переустановки Wine
 
@@ -404,22 +406,22 @@ echo "║           ПЕРЕУСТАНОВКА WINE                   ║"
 echo "╚══════════════════════════════════════════════════╝"
 echo ""
 
-USER=$(whoami)
-HOME_DIR="$HOME"
-WINE_PREFIX="$HOME_DIR/.wine_medorg"
+USER="$USER"
+HOME_DIR="$HOME_DIR"
+WINE_PREFIX="\$HOME_DIR/.wine_medorg"
 
-echo "Пользователь: $USER"
-echo "Wine prefix: $WINE_PREFIX"
+echo "Пользователь: \$USER"
+echo "Wine prefix: \$WINE_PREFIX"
 echo ""
 
 read -p "Вы уверены, что хотите переустановить Wine? (y/N): " -n 1 -r
 echo ""
 
-if [[ $REPLY =~ ^[Yy]$ ]]; then
+if [[ \$REPLY =~ ^[Yy]\$ ]]; then
     echo "▌ Удаление старого Wine prefix..."
-    echo -n "  Удаление $WINE_PREFIX... "
+    echo -n "  Удаление \$WINE_PREFIX... "
     
-    if rm -rf "$WINE_PREFIX" 2>/dev/null; then
+    if rm -rf "\$WINE_PREFIX" 2>/dev/null; then
         echo "✓"
     else
         echo "⚠"
@@ -428,7 +430,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     echo ""
     echo "▌ Создание нового Wine prefix..."
     export WINEARCH=win32
-    export WINEPREFIX="$WINE_PREFIX"
+    export WINEPREFIX="\$WINE_PREFIX"
     
     echo -n "  Инициализация Wine... "
     if wineboot --init 2>/dev/null; then
@@ -449,7 +451,7 @@ if [[ $REPLY =~ ^[Yy]$ ]]; then
     
     echo ""
     echo "╔══════════════════════════════════════════════════╗"
-echo "║       WINE ПЕРЕУСТАНОВЛЕН УСПЕШНО!           ║"
+    echo "║       WINE ПЕРЕУСТАНОВЛЕН УСПЕШНО!           ║"
     echo "╚══════════════════════════════════════════════════╝"
 else
     echo "Операция отменена."
