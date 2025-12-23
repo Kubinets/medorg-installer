@@ -83,7 +83,7 @@ show_header() {
     echo ""
     
     echo -e "${GREEN}"
-    typewriter "                     SYSTEM INSTALLER v3.1" 0.03
+    typewriter "                     SYSTEM INSTALLER v3.2" 0.03
     echo ""
     typewriter "                    https://github.com/kubinets" 0.03
     echo ""
