@@ -359,33 +359,31 @@ select_modules() {
 
 # Запуск модулей (ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ ДЛЯ ВСЕХ СКРИПТОВ)
 run_modules() {
-    print_section "НАЧАЛО УСТАНОВКИ"
+        print_section "НАЧАЛО УСТАНОВКИ"
     log "Начинаем установку..."
     
-    # Создаем функцию для запуска модулей с переменными
-    run_module_with_env() {
+    # Функция для запуска модулей с переменными окружения
+    run_module() {
         local module_url="$1"
         local module_name="$2"
         
         log "Запуск модуля: $module_name..."
         
-        # Скачиваем скрипт
+        # Скачиваем скрипт модуля
         local module_content=$(curl -s "$module_url")
         
-        # Создаем временный скрипт с правильными переменными
-        local temp_script="/tmp/module_$$.sh"
+        # Создаем временный скрипт со всеми необходимыми переменными
+        local temp_script="/tmp/medorg_module_$$.sh"
         
         cat > "$temp_script" << EOF
 #!/bin/bash
-# Загружаем переменные окружения
+# Загружаем переменные окружения из главного скрипта
 export TARGET_USER="$USER"
 export TARGET_HOME="$HOME_DIR"
-export SELECTED_MODULES="$SELECTED_MODULES"
+export SELECTED_MODULES="${SELECTED_MODULES[*]}"
 export SELECTED_MODULES_LIST="${SELECTED_MODULES[*]}"
 export INPUT_METHOD="$INPUT_METHOD"
 export AUTO_MODE="$AUTO_MODE"
-export REQUIRED="Lib LibDRV LibLinux"
-export ALL_MODULES="Admin BolList DayStac Dispanser DopDisp Econ EconRA EconRost Fluoro Kiosk KTFOMSAgentDisp KTFOMSAgentGosp KTFOMSAgentPolis KTFOMSAgentReg KubNaprAgent MainSestStac MedOsm MISAgent OtdelStac Pokoy RegPeople RegPol San SanDoc SpravkaOMS StatPol StatStac StatYear Tablo Talon Vedom VistaAgent WrachPol"
 
 $module_content
 EOF
@@ -402,28 +400,28 @@ EOF
     }
     
     # Модуль 1: Зависимости
-    run_module_with_env \
-        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/01-dependencies.sh?cache=$(date +%s)" \
+    run_module \
+        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/01-dependencies.sh?cache=\$(date +%s)" \
         "зависимости"
     
     # Модуль 2: Настройка Wine
-    run_module_with_env \
-        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/02-wine-setup.sh?cache=$(date +%s)" \
+    run_module \
+        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/02-wine-setup.sh?cache=\$(date +%s)" \
         "Wine"
     
     # Модуль 3: Копирование файлов
-    run_module_with_env \
-        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/03-copy-files.sh?cache=$(date +%s)" \
+    run_module \
+        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/03-copy-files.sh?cache=\$(date +%s)" \
         "копирование"
     
     # Модуль 4: Исправление midas.dll
-    run_module_with_env \
-        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/04-fix-midas.sh?cache=$(date +%s)" \
+    run_module \
+        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/04-fix-midas.sh?cache=\$(date +%s)" \
         "midas.dll"
     
     # Модуль 5: Создание ярлыков
-    run_module_with_env \
-        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/05-create-shortcuts.sh?cache=$(date +%s)" \
+    run_module \
+        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/05-create-shortcuts.sh?cache=\$(date +%s)" \
         "ярлыки"
     
     # Создаем финальный фикс-скрипт
