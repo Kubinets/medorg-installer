@@ -252,7 +252,7 @@ select_user() {
     success "Домашняя директория: $HOME_DIR"
 }
 
-   # Выбор модулей (ИСПРАВЛЕННАЯ ВЕРСИЯ ДЛЯ ПАЙПА)
+# Выбор модулей (ФИНАЛЬНАЯ ИСПРАВЛЕННАЯ ВЕРСИЯ)
 select_modules() {
     if [[ "$AUTO_MODE" == true ]]; then
         SELECTED_MODULES=()
@@ -285,71 +285,85 @@ select_modules() {
     echo -e "${YELLOW}  n. Только обязательные${NC}"
     echo ""
     
-    # ========== ВАЖНОЕ ИСПРАВЛЕНИЕ: ==========
-    # Если запущено через пайп, используем дефолтные значения
+    # ========== КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ==========
+    # Вместо пропуска выбора в режиме пайпа, даем возможность ввести
+    # Если stdin не терминал, перенаправляем ввод с /dev/tty
+    
+    local original_stdin="/proc/self/fd/0"
+    
+    # Проверяем, можем ли мы читать с терминала
     if [[ ! -t 0 ]]; then
-        log "Режим пайпа: используем только обязательные модули"
-        SELECTED_MODULES=()
-        echo "Для выбора модулей используйте аргумент --modules"
-        echo "Например: curl ... | sudo bash -- --modules WrachPol,Admin"
-        return
+        log "Обнаружен режим пайпа. Пытаемся использовать терминал для ввода..."
+        
+        # Пробуем открыть терминал для ввода
+        if [[ -t 1 ]] && [[ -c /dev/tty ]]; then
+            log "Используем /dev/tty для интерактивного ввода"
+            exec < /dev/tty
+        else
+            warning "Не удалось получить интерактивный ввод"
+            log "Используем только обязательные модули"
+            SELECTED_MODULES=()
+            echo ""
+            echo "Для выбора модулей используйте аргумент --modules при запуске:"
+            echo "  curl ... | sudo bash -- --user god --modules WrachPol,Admin"
+            echo ""
+            return
+        fi
     fi
     
     # ========== ИНТЕРАКТИВНЫЙ ВВОД ==========
-    # Перенаправляем ввод с терминала
-    exec < /dev/tty
+    echo -ne "${GREEN}Выберите модули${NC}"
+    echo -ne "${BLUE} (номера через пробел, 'a' или 'n')${NC}"
+    echo -ne "${YELLOW}: ${NC}"
     
-    while true; do
-        echo -ne "${GREEN}Выберите модули${NC}"
-        echo -ne "${BLUE} (номера через пробел, 'a' или 'n')${NC}"
-        echo -ne "${YELLOW}: ${NC}"
+    # Читаем ввод с таймаутом 30 секунд
+    if read -t 30 choices; then
+        SELECTED_MODULES=()
         
-        # Читаем ввод с таймаутом
-        if read -t 60 choices; then
-            SELECTED_MODULES=()
-            
-            case "$choices" in
-                a|A)
-                    SELECTED_MODULES=("${ALL_MODULES[@]}")
-                    echo ""
-                    echo "Выбраны ВСЕ модули"
-                    break
-                    ;;
-                n|N)
-                    SELECTED_MODULES=()
-                    echo ""
-                    echo "Только обязательные модули"
-                    break
-                    ;;
-                *)
-                    IFS=' ' read -ra nums <<< "$choices"
-                    valid=true
-                    
-                    for num in "${nums[@]}"; do
-                        if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le ${#ALL_MODULES[@]} ]; then
-                            SELECTED_MODULES+=("${ALL_MODULES[$((num-1))]}")
-                        else
-                            warning "Неверный номер: $num"
-                            valid=false
-                        fi
-                    done
-                    
-                    if [ "$valid" = true ] && [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
-                        SELECTED_MODULES=($(echo "${SELECTED_MODULES[@]}" | tr ' ' '\n' | sort -u))
-                        break
+        case "$choices" in
+            a|A)
+                SELECTED_MODULES=("${ALL_MODULES[@]}")
+                echo ""
+                echo "Выбраны ВСЕ модули"
+                ;;
+            n|N|"")
+                SELECTED_MODULES=()
+                echo ""
+                echo "Только обязательные модули"
+                ;;
+            *)
+                IFS=' ' read -ra nums <<< "$choices"
+                valid=true
+                
+                for num in "${nums[@]}"; do
+                    if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le ${#ALL_MODULES[@]} ]; then
+                        SELECTED_MODULES+=("${ALL_MODULES[$((num-1))]}")
                     else
-                        warning "Не выбрано ни одного модуля!"
-                        echo "Попробуйте еще раз или нажмите Ctrl+C для отмены"
+                        warning "Неверный номер: $num"
+                        valid=false
                     fi
-                    ;;
-            esac
-        else
-            echo ""
-            log "Таймаут (60 секунд). Используем только обязательные модули."
-            SELECTED_MODULES=()
-            break
-        fi
-    done
+                done
+                
+                if [ "$valid" = true ] && [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
+                    SELECTED_MODULES=($(echo "${SELECTED_MODULES[@]}" | tr ' ' '\n' | sort -u))
+                    echo ""
+                    echo "Выбраны модули: ${SELECTED_MODULES[*]}"
+                else
+                    warning "Неверный ввод! Используем только обязательные модули"
+                    SELECTED_MODULES=()
+                fi
+                ;;
+        esac
+    else
+        echo ""
+        warning "Таймаут ввода (30 секунд). Используем только обязательные модули."
+        SELECTED_MODULES=()
+    fi
+    
+    # Восстанавливаем оригинальный stdin если нужно
+    if [[ ! -t 0 ]] && [[ -e "$original_stdin" ]]; then
+        exec < "$original_stdin"
+    fi
     
     echo ""
     if [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
@@ -361,6 +375,7 @@ select_modules() {
         log "Дополнительные модули не выбраны"
     fi
 }
+
 # Запуск модулей (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 run_modules() {
     print_section "НАЧАЛО УСТАНОВКИ"
