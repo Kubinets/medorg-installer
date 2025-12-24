@@ -1,559 +1,109 @@
 #!/bin/bash
-# MedOrg Installer v3.4 - ПОЛНОСТЬЮ ИСПРАВЛЕННЫЙ
-# by kubinets - https://github.com/kubinets
+# install_fixed.sh - РАБОЧИЙ установщик
 
 set -e
 
-# Цвета
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-PURPLE='\033[1;35m'
-CYAN='\033[1;36m'
 NC='\033[0m'
 
-# Глобальные переменные
-REQUIRED=("Lib" "LibDRV" "LibLinux")
-ALL_MODULES=("Admin" "BolList" "DayStac" "Dispanser" "DopDisp" 
-             "Econ" "EconRA" "EconRost" "Fluoro" "Kiosk" 
-             "KTFOMSAgentDisp" "KTFOMSAgentGosp" "KTFOMSAgentPolis" 
-             "KTFOMSAgentReg" "KubNaprAgent" "MainSestStac" 
-             "MedOsm" "MISAgent" "OtdelStac" "Pokoy" "RegPeople" 
-             "RegPol" "San" "SanDoc" "SpravkaOMS" "StatPol" 
-             "StatStac" "StatYear" "Tablo" "Talon" "Vedom" 
-             "VistaAgent" "WrachPol")
-SELECTED_MODULES=()
-AUTO_MODE=false
-USER=""
-HOME_DIR=""
+echo -e "${BLUE}=== УСТАНОВЩИК MEDORG (ИСПРАВЛЕННЫЙ) ===${NC}"
 
-# ========== ФИКС ДЛЯ ПАЙПА ==========
-if [[ -t 0 ]]; then
-    INPUT_METHOD="tty"
+# Получаем пользователя и модули
+if [ -z "$1" ]; then
+    read -p "Имя пользователя для установки [meduser]: " USER
+    USER=${USER:-meduser}
 else
-    INPUT_METHOD="args"
-    echo -e "${YELLOW}ВНИМАНИЕ: Скрипт запущен через пайп.${NC}"
-    echo -e "${YELLOW}Используйте аргументы командной строки:${NC}"
-    echo "  --user ИМЯ_ПОЛЬЗОВАТЕЛЯ"
-    echo "  --modules МОДУЛЬ1,МОДУЛЬ2,... или 'all' или 'none'"
-    echo "  --auto    Автоматическая установка с параметрами по умолчанию"
-    echo ""
+    USER="$1"
 fi
-# =====================================
 
-# Функция печатающей машинки
-typewriter() {
-    local text="$1"
-    local delay="${2:-0.01}"
-    
-    for (( i=0; i<${#text}; i++ )); do
-        echo -n "${text:$i:1}"
-        sleep $delay
-    done
-    echo ""
-}
-
-# Анимированный заголовок
-show_header() {
-    clear
-    
-    echo -e "${PURPLE}"
-    typewriter "  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░" 0.001
-    echo ""
-    
-    echo -e "${CYAN}"
-    typewriter "  ██╗░░██╗██╗░░░██╗██████╗░██╗███╗░░██╗███████╗████████╗███████╗" 0.001
-    typewriter "  ██║░██╔╝██║░░░██║██╔══██╗██║████╗░██║██╔════╝╚══██╔══╝██╔════╝" 0.001
-    typewriter "  █████╔╝░██║░░░██║██████╔╝██║██╔██╗██║█████╗░░░░░██║░░░██████╗░" 0.001
-    typewriter "  ██╔═██╗░██║░░░██║██╔══██╗██║██║╚████║██╔══╝░░░░░██║░░░╚════██╗" 0.001
-    typewriter "  ██║░██║░╚██████╔╝██║░░██║██║██║░╚████║███████╗░░░██║░░░██████╔╝" 0.001
-    typewriter "  ╚═╝░╚═╝░░╚═════╝░╚═╝░░╚═╝╚═╝╚═╝░░╚═══╝╚══════╝░░░╚═╝░░░╚═════╝░" 0.001
-    echo ""
-    
-    echo -e "${YELLOW}"
-    typewriter "  ═══════════════════════════════════════════════════════════" 0.001
-    echo ""
-    
-    echo -e "${RED}"
-    typewriter "   ███████╗██╗   ██╗███████╗████████╗███████╗███╗   ███╗" 0.001
-    typewriter "   ██╔════╝╚██╗ ██╔╝██╔════╝╚══██╔══╝██╔════╝████╗ ████║" 0.001
-    typewriter "   ███████╗ ╚████╔╝ ███████╗   ██║   █████╗  ██╔████╔██║" 0.001
-    typewriter "   ╚════██║  ╚██╔╝  ╚════██║   ██║   ██╔══╝  ██║╚██╔╝██║" 0.001
-    typewriter "   ███████║   ██║   ███████║   ██║   ███████╗██║ ╚═╝ ██║" 0.001
-    typewriter "   ╚══════╝   ╚═╝   ╚══════╝   ╚═╝   ╚══════╝╚═╝     ╚═╝" 0.001
-    typewriter "   ██╗███╗   ██╗███████╗████████╗ █████╗ ██╗     ██╗     " 0.001
-    typewriter "   ██║████╗  ██║██╔════╝╚══██╔══╝██╔══██╗██║     ██║     " 0.001
-    typewriter "   ██║██╔██╗ ██║███████╗   ██║   ███████║██║     ██║     " 0.001
-    typewriter "   ██║██║╚██╗██║╚════██║   ██║   ██╔══██╗██║     ██║     " 0.001
-    typewriter "   ██║██║ ╚████║███████╗   ██║   ██║  ██║███████╗███████╗" 0.001
-    typewriter "   ╚═╝╚═╝  ╚═══╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚══════╝" 0.001
-    echo ""
-    
-    echo -e "${PURPLE}"
-    typewriter "  ═══════════════════════════════════════════════════════════" 0.001
-    echo ""
-    
-    echo -e "${GREEN}"
-    typewriter "                     SYSTEM INSTALLER v3.4" 0.03
-    echo ""
-    typewriter "                    https://github.com/kubinets" 0.03
-    echo ""
-    
-    sleep 1
-}
-
-# Функции вывода
-log() { echo -e "${BLUE}[INFO]${NC} $1"; }
-success() { echo -e "${GREEN}✓${NC} $1"; }
-error() { echo -e "${RED}✗${NC} $1"; exit 1; }
-warning() { echo -e "${YELLOW}!${NC} $1"; }
-
-# Красивая рамка для заголовков
-print_section() {
-    local title="$1"
-    local width=50
-    local padding=$(( (width - ${#title} - 2) / 2 ))
-    
-    echo ""
-    echo -e "${CYAN}╔$(printf '═%.0s' $(seq 1 $width))╗${NC}"
-    echo -e "${CYAN}║$(printf ' %.0s' $(seq 1 $padding))${PURPLE}$title${CYAN}$(printf ' %.0s' $(seq 1 $((width - padding - ${#title}))))║${NC}"
-    echo -e "${CYAN}╚$(printf '═%.0s' $(seq 1 $width))╝${NC}"
-    echo ""
-}
-
-# Проверка root
-check_root() {
-    if [ "$EUID" -ne 0 ]; then 
-        error "Запустите с правами root: sudo $0"
-    fi
-}
-
-# Парсинг аргументов командной строки
-parse_args() {
-    USER=""  # Пустое значение по умолчанию
-    SELECTED_MODULES=()
-    AUTO_MODE=false
-    USER_SPECIFIED=false  # Флаг, указывающий, что пользователь указан через аргумент
-    
-    while [[ $# -gt 0 ]]; do
-        case $1 in
-            --user)
-                USER="$2"
-                USER_SPECIFIED=true
-                shift 2
-                ;;
-            --modules)
-                if [[ "$2" == "all" ]]; then
-                    SELECTED_MODULES=("${ALL_MODULES[@]}")
-                elif [[ "$2" == "none" ]]; then
-                    SELECTED_MODULES=()
-                else
-                    IFS=',' read -ra SELECTED_MODULES <<< "$2"
-                fi
-                shift 2
-                ;;
-            --auto)
-                AUTO_MODE=true
-                USER="meduser"
-                USER_SPECIFIED=true
-                SELECTED_MODULES=()
-                shift
-                ;;
-            -h|--help)
-                echo "Использование:"
-                echo "  curl -sSL https://.../install.sh | sudo bash -- [ОПЦИИ]"
-                echo ""
-                echo "Опции:"
-                echo "  --user ИМЯ        Имя пользователя (по умолчанию: будет предложено выбрать)"
-                echo "  --modules СПИСОК  Модули через запятую, 'all' или 'none'"
-                echo "  --auto            Автоматическая установка с параметрами по умолчанию"
-                echo "  -h, --help        Показать эту справку"
-                echo ""
-                echo "Примеры:"
-                echo "  curl ... | sudo bash"
-                echo "  curl ... | sudo bash -- --user vasya --modules Admin,BolList"
-                echo "  curl ... | sudo bash -- --auto"
-                exit 0
-                ;;
-            --)
-                shift
-                break
-                ;;
-            *)
-                warning "Неизвестный аргумент: $1"
-                shift
-                ;;
-        esac
-    done
-}
-
-# Выбор пользователя (ИСПРАВЛЕННАЯ ВЕРСИЯ)
-select_user() {
-    # Если пользователь не указан через аргументы, всегда запрашиваем выбор
-    if [[ "$USER_SPECIFIED" != true ]]; then
-        print_section "ВЫБОР ПОЛЬЗОВАТЕЛЯ"
-        
-        # Показываем существующих пользователей
-        echo "Существующие пользователи в системе:"
-        echo "-----------------------------------"
-        # Показываем только пользователей с домашней директорией
-        getent passwd | grep -E ':/home/' | cut -d: -f1 | sort | column -c 80
-        echo ""
-        
-        # В режиме пайпа перенаправляем ввод на терминал
-        if [[ ! -t 0 ]]; then
-            exec < /dev/tty
-        fi
-        
-        while true; do
-            echo -ne "${YELLOW}Введите имя пользователя для установки${NC}"
-            echo -ne "${BLUE} (или 'new' для создания нового)${NC}"
-            echo -ne "${GREEN} [meduser]: ${NC}"
-            read input_user
-            
-            USER="${input_user:-meduser}"
-            
-            if [[ "$USER" == "new" ]]; then
-                read -p "Введите имя нового пользователя: " new_user
-                if [[ -n "$new_user" ]]; then
-                    USER="$new_user"
-                    break
-                else
-                    warning "Имя пользователя не может быть пустым!"
-                fi
-            elif [[ -n "$USER" ]]; then
-                break
-            fi
-        done
-    fi
-    
-    # Проверка/создание пользователя
-    if ! id "$USER" &>/dev/null; then
-        echo ""
-        echo -e "${YELLOW}Пользователь '$USER' не существует.${NC}"
-        
-        if [[ "$AUTO_MODE" == true ]]; then
-            # Автоматически создаем пользователя
-            useradd -m -s /bin/bash "$USER"
-            echo "$USER:$USER" | chpasswd  # Пароль = имя пользователя
-            success "Пользователь '$USER' создан автоматически"
-        else
-            # В режиме пайпа перенаправляем ввод на терминал
-            if [[ ! -t 0 ]]; then
-                exec < /dev/tty
-            fi
-            
-            read -p "Создать нового пользователя '$USER'? (Y/n): " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Nn]$ ]]; then
-                error "Установка отменена. Пользователь не существует."
-            else
-                useradd -m -s /bin/bash "$USER"
-                echo "Установка пароля для пользователя '$USER':"
-                passwd "$USER"
-                success "Пользователь '$USER' создан"
-            fi
-        fi
+if [ -z "$2" ]; then
+    echo "Доступные модули:"
+    echo "  all - все модули"
+    echo "  none - только обязательные"
+    echo "  или список модулей через запятую: Admin,BolList,DayStac"
+    read -p "Выберите модули [none]: " MODULES_INPUT
+    if [ "$MODULES_INPUT" = "all" ]; then
+        SELECTED_MODULES="Admin BolList DayStac Dispanser DopDisp Econ EconRA EconRost Fluoro Kiosk KTFOMSAgentDisp KTFOMSAgentGosp KTFOMSAgentPolis KTFOMSAgentReg KubNaprAgent MainSestStac MedOsm MISAgent OtdelStac Pokoy RegPeople RegPol San SanDoc SpravkaOMS StatPol StatStac StatYear Tablo Talon Vedom VistaAgent WrachPol"
+    elif [ "$MODULES_INPUT" = "none" ]; then
+        SELECTED_MODULES=""
     else
-        success "Используем существующего пользователя: $USER"
+        # Конвертируем запятые в пробелы
+        SELECTED_MODULES=$(echo "$MODULES_INPUT" | tr ',' ' ')
     fi
-    
-    HOME_DIR=$(getent passwd "$USER" | cut -d: -f6)
-    success "Установка для пользователя: $USER"
-    success "Домашняя директория: $HOME_DIR"
-}
+else
+    SELECTED_MODULES=$(echo "$2" | tr ',' ' ')
+fi
 
-# Выбор модулей (обновленная версия)
-select_modules() {
-    if [[ "$AUTO_MODE" == true ]]; then
-        SELECTED_MODULES=()
-        log "Автоматический режим: установка только обязательных модулей"
-        return
-    fi
-    
-    if [[ "$INPUT_METHOD" == "args" ]] && [[ ${#SELECTED_MODULES[@]} -gt 0 ]]; then
-        # Модули уже выбраны через аргументы
-        log "Модули выбраны через аргументы командной строки"
-        return
-    fi
-    
-    # Интерактивный выбор
-    print_section "ВЫБОР МОДУЛЕЙ"
-    
-    echo "Обязательные модули:"
-    echo -e "${GREEN}$(printf '  • %s\n' "${REQUIRED[@]}")${NC}"
-    echo ""
-    
-    echo "Дополнительные модули:"
-    for i in "${!ALL_MODULES[@]}"; do
-        printf "${CYAN}%2d.${NC} %-20s" $((i+1)) "${ALL_MODULES[i]}"
-        if [ $(((i+1) % 3)) -eq 0 ] || [ $((i+1)) -eq ${#ALL_MODULES[@]} ]; then
-            echo ""
-        fi
-    done
-    
-    echo ""
-    echo -e "${YELLOW}  a. Все модули${NC}"
-    echo -e "${YELLOW}  n. Только обязательные${NC}"
-    echo ""
-    
-    # В режиме пайпа перенаправляем ввод на терминал
-    if [[ ! -t 0 ]]; then
-        exec < /dev/tty
-    fi
-    
-    while true; do
-        echo -ne "${GREEN}Выберите модули${NC}"
-        echo -ne "${BLUE} (номера через пробел, 'a' или 'n')${NC}"
-        echo -ne "${YELLOW}: ${NC}"
-        read choices
-        
-        SELECTED_MODULES=()
-        
-        case "$choices" in
-            a|A)
-                SELECTED_MODULES=("${ALL_MODULES[@]}")
-                echo ""
-                typewriter "Выбраны ВСЕ модули..." 0.03
-                return
-                ;;
-            n|N)
-                SELECTED_MODULES=()
-                echo ""
-                typewriter "Только обязательные модули..." 0.03
-                return
-                ;;
-            *)
-                IFS=' ' read -ra nums <<< "$choices"
-                valid=true
-                
-                for num in "${nums[@]}"; do
-                    if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le ${#ALL_MODULES[@]} ]; then
-                        SELECTED_MODULES+=("${ALL_MODULES[$((num-1))]}")
-                    else
-                        warning "Неверный номер: $num"
-                        valid=false
-                    fi
-                done
-                
-                if [ "$valid" = true ] && [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
-                    SELECTED_MODULES=($(echo "${SELECTED_MODULES[@]}" | tr ' ' '\n' | sort -u))
-                    break
-                else
-                    warning "Не выбрано ни одного модуля!"
-                fi
-                ;;
-        esac
-    done
-    
-    echo ""
-    success "Выбраны модули:"
-    for module in "${SELECTED_MODULES[@]}"; do
-        echo -e "  ${GREEN}•${NC} $module"
-    done
-}
+HOME_DIR=$(getent passwd "$USER" | cut -d: -f6)
 
-# Запуск модулей (ПОЛНОСТЬЮ ПЕРЕПИСАННАЯ ВЕРСИЯ)
-run_modules() {
-    print_section "НАЧАЛО УСТАНОВКИ"
-    log "Начинаем установку..."
-    
-    # Загружаем и выполняем модули по очереди
-    log "Загрузка модулей..."
-    
-    # 1. Модуль зависимостей
-    echo "=== МОДУЛЬ 1: УСТАНОВКА ЗАВИСИМОСТЕЙ ==="
-    if curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/01-dependencies.sh" | bash; then
-        success "Модуль зависимостей выполнен"
-    else
-        warning "Модуль зависимостей завершился с ошибками"
-    fi
-    
-    # 2. Модуль Wine
-    echo ""
-    echo "=== МОДУЛЬ 2: НАСТРОЙКА WINE ==="
-    echo "Устанавливаем переменные: TARGET_USER=$USER, TARGET_HOME=$HOME_DIR"
-    export TARGET_USER="$USER"
-    export TARGET_HOME="$HOME_DIR"
-    
-    if curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/02-wine-setup.sh" | bash; then
-        success "Модуль Wine выполнен"
-    else
-        warning "Модуль Wine завершился с ошибками"
-    fi
-    
-    # 3. Модуль копирования файлов
-    echo ""
-    echo "=== МОДУЛЬ 3: КОПИРОВАНИЕ ФАЙЛОВ ==="
-    echo "Выбранные модули: ${SELECTED_MODULES[*]}"
-    export TARGET_USER="$USER"
-    export TARGET_HOME="$HOME_DIR"
-    export SELECTED_MODULES="${SELECTED_MODULES[*]}"
-    
-    if curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/03-copy-files.sh" | bash; then
-        success "Модуль копирования выполнен"
-    else
-        warning "Модуль копирования завершился с ошибками"
-    fi
-    
-    # 4. Модуль midas.dll
-    echo ""
-    echo "=== МОДУЛЬ 4: ИСПРАВЛЕНИЕ MIDAS.DLL ==="
-    export TARGET_USER="$USER"
-    export TARGET_HOME="$HOME_DIR"
-    
-    if curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/04-fix-midas.sh" | bash; then
-        success "Модуль midas.dll выполнен"
-    else
-        warning "Модуль midas.dll завершился с ошибками"
-    fi
-    
-    # 5. Модуль создания ярлыков
-    echo ""
-    echo "=== МОДУЛЬ 5: СОЗДАНИЕ ЯРЛЫКОВ ==="
-    export TARGET_USER="$USER"
-    export TARGET_HOME="$HOME_DIR"
-    
-    if curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/05-create-shortcuts.sh" | bash; then
-        success "Модуль ярлыков выполнен"
-    else
-        warning "Модуль ярлыков завершился с ошибками"
-    fi
-    
-    # Создаем финальный фикс-скрипт
-    create_final_script
-}
+echo ""
+echo -e "${GREEN}Настройки установки:${NC}"
+echo "  Пользователь: $USER"
+echo "  Домашняя директория: $HOME_DIR"
+echo "  Выбранные модули: $SELECTED_MODULES"
+echo ""
 
-# Создание финального скрипта
-create_final_script() {
-    local script_path="$HOME_DIR/final_fix_all.sh"
-    
-    cat > "$script_path" << 'EOF'
+read -p "Начать установку? (Y/n): " -n 1 -r
+echo
+if [[ $REPLY =~ ^[Nn]$ ]]; then
+    echo "Установка отменена"
+    exit 0
+fi
+
+# 1. Зависимости
+echo -e "${YELLOW}[1/5] Установка зависимостей...${NC}"
+curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/01-dependencies.sh" | bash
+
+# 2. Wine
+echo -e "${YELLOW}[2/5] Настройка Wine...${NC}"
+export TARGET_USER="$USER"
+export TARGET_HOME="$HOME_DIR"
+curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/02-wine-setup.sh" | bash
+
+# 3. Копирование файлов
+echo -e "${YELLOW}[3/5] Копирование файлов...${NC}"
+export TARGET_USER="$USER"
+export TARGET_HOME="$HOME_DIR"
+export SELECTED_MODULES="$SELECTED_MODULES"
+curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/03-copy-files.sh" | bash
+
+# 4. Midas.dll
+echo -e "${YELLOW}[4/5] Исправление midas.dll...${NC}"
+export TARGET_USER="$USER"
+export TARGET_HOME="$HOME_DIR"
+curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/04-fix-midas.sh" | bash
+
+# 5. Ярлыки
+echo -e "${YELLOW}[5/5] Создание ярлыков...${NC}"
+export TARGET_USER="$USER"
+export TARGET_HOME="$HOME_DIR"
+curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/05-create-shortcuts.sh" | bash
+
+# Финальный фикс
+echo -e "${GREEN}Создание финального фикс-скрипта...${NC}"
+cat > "$HOME_DIR/final_fix_all.sh" << 'EOF'
 #!/bin/bash
 export WINEPREFIX="$HOME/.wine_medorg"
 
-echo "=== ФИНАЛЬНЫЙ ФИКС ДЛЯ ВСЕХ МОДУЛЕЙ ==="
-
-# 1. Создаем ссылки для регистра
-echo "1. Создание ссылок для разных регистров..."
+echo "=== ФИНАЛЬНЫЙ ФИКС ==="
 cd "$WINEPREFIX/drive_c/MedCTech/MedOrg/Lib"
 ln -sf midas.dll MIDAS.DLL 2>/dev/null
 ln -sf midas.dll Midas.dll 2>/dev/null
 ln -sf midas.dll midas.DLL 2>/dev/null
-
-# 2. Копируем в system32
-echo "2. Копирование в system32..."
 cp -f midas.dll "$WINEPREFIX/drive_c/windows/system32/" 2>/dev/null
-cd "$WINEPREFIX/drive_c/windows/system32"
-ln -sf midas.dll MIDAS.DLL 2>/dev/null
-ln -sf midas.dll Midas.dll 2>/dev/null
 
-# 3. Исправляем реестр
-echo "3. Исправление реестра..."
-cat > /tmp/final_fix.reg << 'REGEOF'
-REGEDIT4
+echo "Готово! Запускайте программы через ярлыки."
+EOF
 
-[HKEY_LOCAL_MACHINE\Software\Borland\Database Engine]
-"DLLPATH"="C:\\MedCTech\\MedOrg\\Lib"
-
-[HKEY_LOCAL_MACHINE\Software\Borland\BLW32]
-"BLAPIPATH"="C:\\MedCTech\\MedOrg\\Lib"
-
-[HKEY_LOCAL_MACHINE\Software\Wow6432Node\Borland\Database Engine]
-"DLLPATH"="C:\\MedCTech\\MedOrg\\Lib"
-
-[HKEY_LOCAL_MACHINE\Software\Wow6432Node\Borland\BLW32]
-"BLAPIPATH"="C:\\MedCTech\\MedOrg\\Lib"
-REGEOF
-
-wine regedit /tmp/final_fix.reg 2>/dev/null
-rm -f /tmp/final_fix.reg
+chmod +x "$HOME_DIR/final_fix_all.sh"
+chown "$USER:$USER" "$HOME_DIR/final_fix_all.sh"
 
 echo ""
-echo "=== Готово! ==="
-echo "Запускайте программы через ярлыки на рабочем столе"
-EOF
-    
-    chmod +x "$script_path"
-    chown "$USER:$USER" "$script_path"
-    
-    success "Финальный фикс-скрипт создан: ~/final_fix_all.sh"
-}
-
-# Функция для отображения завершения
-show_completion() {
-    print_section "УСТАНОВКА ЗАВЕРШЕНА"
-    
-    echo ""
-    echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║                    УСПЕШНО ЗАВЕРШЕНО!                      ║${NC}"
-    echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
-    echo ""
-    
-    echo -e "${CYAN}Итоги установки:${NC}"
-    echo -e "${BLUE}────────────────${NC}"
-    echo -e "Пользователь:        ${GREEN}$USER${NC}"
-    echo -e "Домашняя директория: ${YELLOW}$HOME_DIR${NC}"
-    echo -e "Wine prefix:         ${YELLOW}$HOME_DIR/.wine_medorg${NC}"
-    echo ""
-    
-    if [ -n "$SELECTED_MODULES" ] && [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
-        echo -e "${CYAN}Выбранные модули:${NC}"
-        echo -e "${BLUE}────────────────${NC}"
-        for module in "${SELECTED_MODULES[@]}"; do
-            echo -e "  ${GREEN}•${NC} $module"
-        done
-        echo ""
-    fi
-    
-    echo -e "${CYAN}Для запуска программ:${NC}"
-    echo -e "${BLUE}────────────────────${NC}"
-    echo "1. Войдите как пользователь: $USER"
-    echo "2. Запустите финальный фикс:"
-    echo -e "   ${YELLOW}./final_fix_all.sh${NC}"
-    echo "3. Или перейдите в папку программы:"
-    echo -e "   ${YELLOW}cd ~/.wine_medorg/drive_c/MedCTech/MedOrg/Название_модуля${NC}"
-    echo -e "   ${YELLOW}wine ИмяПрограммы.exe${NC}"
-    echo ""
-    
-    # Счетчик до автовыхода
-    echo -n "Завершение через "
-    for i in {5..1}; do
-        echo -n "${RED}$i${NC} "
-        sleep 1
-    done
-    echo ""
-}
-
-# Основной процесс установки
-main() {
-    show_header
-    
-    # Парсим аргументы
-    parse_args "$@"
-    
-    # Проверка прав
-    check_root
-    
-    # Выбор пользователя
-    select_user
-    
-    # Выбор модулей
-    select_modules
-    
-    # Запуск модулей
-    run_modules
-    
-    # Завершение
-    show_completion
-    
-    # Автоматический выход
-    exit 0
-}
-
-# Обработка Ctrl+C
-trap 'echo -e "\n${RED}Установка прервана пользователем${NC}"; exit 1' INT
-
-# Запуск (передаем все аргументы после --)
-main "$@"
+echo -e "${GREEN}=== УСТАНОВКА ЗАВЕРШЕНА! ===${NC}"
+echo "Войдите как пользователь $USER и выполните:"
+echo "  cd /home/$USER"
+echo "  ./final_fix_all.sh"
+echo ""
