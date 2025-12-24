@@ -1,5 +1,5 @@
 #!/bin/bash
-# Создание ярлыков с иконками - исправленная версия
+# Создание ЯРЛЫКОВ (.desktop файлов) для медицинских программ
 
 set -e
 
@@ -38,6 +38,7 @@ check_environment() {
 get_desktop_path() {
     log "Определение рабочего стола..."
     
+    # Основные пути к рабочему столу
     DESKTOP_DIR="$HOME_DIR/Рабочий стол"
     if [ ! -d "$DESKTOP_DIR" ]; then
         DESKTOP_DIR="$HOME_DIR/Desktop"
@@ -48,74 +49,22 @@ get_desktop_path() {
         fi
     fi
     
+    # Папка для .desktop файлов в системе
+    SYSTEM_DESKTOP_DIR="$HOME_DIR/.local/share/applications"
+    mkdir -p "$SYSTEM_DESKTOP_DIR"
+    chown -R "$USER:$USER" "$SYSTEM_DESKTOP_DIR"
+    
     success "Рабочий стол: $DESKTOP_DIR"
+    success "Системные ярлыки: $SYSTEM_DESKTOP_DIR"
 }
 
-# Извлечение иконок из EXE файлов
-extract_icons() {
-    local install_dir="$1"
-    local icon_dir="$2"
-    
-    log "Извлечение иконок из EXE файлов..."
-    
-    mkdir -p "$icon_dir/64"
-    mkdir -p "$icon_dir/32"
-    mkdir -p "$icon_dir/16"
-    
-    if [ ! -d "$install_dir" ]; then
-        warning "Директория программ не найдена: $install_dir"
-        return
-    fi
-    
-    # Ищем все EXE файлы в установленных модулях
-    local exe_files=$(find "$install_dir" -name "*.exe" -type f 2>/dev/null)
-    
-    if [ -z "$exe_files" ]; then
-        warning "EXE файлы не найдены"
-        return
-    fi
-    
-    echo "$exe_files" | while read -r exe_file; do
-        local module_dir=$(dirname "$exe_file")
-        local module_name=$(basename "$module_dir")
-        local exe_name=$(basename "$exe_file" .exe)
-        
-        # Пропускаем если не папка модуля или это служебные модули
-        if [[ "$module_name" == "." ]] || [[ ! "$module_name" =~ ^[A-Z] ]] || \
-           [[ "$module_name" == "Lib" ]] || [[ "$module_name" == "LibDRV" ]] || [[ "$module_name" == "LibLinux" ]]; then
-            continue
-        fi
-        
-        echo -n "  $module_name... "
-        
-        # Извлекаем иконку
-        cd "$module_dir" 2>/dev/null || continue
-        if wrestool -x -o "/tmp/${module_name}_icon.ico" "$exe_name.exe" 2>/dev/null; then
-            # Конвертируем в PNG
-            if convert "/tmp/${module_name}_icon.ico[0]" "$icon_dir/64/${module_name}.png" 2>/dev/null; then
-                convert "$icon_dir/64/${module_name}.png" -resize 32x32 "$icon_dir/32/${module_name}.png" 2>/dev/null
-                convert "$icon_dir/64/${module_name}.png" -resize 16x16 "$icon_dir/16/${module_name}.png" 2>/dev/null
-                echo -e "${GREEN}✓${NC}"
-            else
-                echo -e "${YELLOW}!${NC} (ошибка конвертации)"
-            fi
-            rm -f "/tmp/${module_name}_icon.ico" 2>/dev/null
-        else
-            echo -e "${YELLOW}!${NC} (иконка не извлечена)"
-        fi
-    done
-    
-    chown -R "$USER:$USER" "$icon_dir"
-}
-
-# Создание ярлыков для установленных модулей
-create_shortcuts() {
-    log "Создание ярлыков..."
+# Создание правильных .desktop файлов
+create_desktop_files() {
+    log "Создание .desktop файлов..."
     
     INSTALL_DIR="$HOME_DIR/.wine_medorg/drive_c/MedCTech/MedOrg"
-    ICON_DIR="$HOME_DIR/.local/share/icons/medorg"
     
-    # Создаем папку для ярлыков
+    # Создаем папку для ярлыков на рабочем столе
     PROGRAM_DIR="$DESKTOP_DIR/Медицинские программы"
     mkdir -p "$PROGRAM_DIR"
     chown -R "$USER:$USER" "$PROGRAM_DIR"
@@ -147,10 +96,7 @@ EOF
         return
     fi
     
-    # Извлекаем иконки
-    extract_icons "$INSTALL_DIR" "$ICON_DIR"
-    
-    # Создаем ярлыки для каждого модуля (кроме служебных)
+    # Создаем ярлыки для каждого модуля
     local created=0
     local all_modules=$(find "$INSTALL_DIR" -maxdepth 1 -type d -name "[A-Z]*" | sort)
     
@@ -177,62 +123,120 @@ EOF
             continue
         fi
         
-        # Путь к иконке
-        local icon_path="wine"
-        if [ -f "$ICON_DIR/32/${module_name}.png" ]; then
-            icon_path="$ICON_DIR/32/${module_name}.png"
-        fi
+        # Имя EXE файла без расширения
+        local exe_name=$(basename "$exe_file" .exe)
         
-        # Создаем скрипт запуска
-        local script_path="$PROGRAM_DIR/$module_name.sh"
+        # ========== СОЗДАЕМ .DESKTOP ФАЙЛ ==========
         
-        cat > "$script_path" << EOF
+        # 1. Сначала создаем скрипт-обертку
+        local wrapper_script="$PROGRAM_DIR/$module_name-wrapper.sh"
+        
+        cat > "$wrapper_script" << EOF
 #!/bin/bash
+# Обертка для запуска $module_name через Wine
+
 export WINEPREFIX="$HOME_DIR/.wine_medorg"
 export WINEARCH=win32
-export WINEDLLPATH="C:\\\\MedCTech\\\\MedOrg\\\\Lib"
 export WINEDEBUG="-all"
+export DISPLAY=":0"
 
 cd "$module_dir"
-wine "$(basename "$exe_file")"
+exec wine "$exe_name.exe"
 EOF
         
-        chmod +x "$script_path"
-        chown "$USER:$USER" "$script_path"
+        chmod +x "$wrapper_script"
+        chown "$USER:$USER" "$wrapper_script"
         
-        # Создаем desktop файл
-        local desktop_file="$PROGRAM_DIR/$module_name.desktop"
+        # 2. Создаем .desktop файл на рабочем столе
+        local desktop_file="$DESKTOP_DIR/$module_name.desktop"
         
         cat > "$desktop_file" << EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
 Name=$module_name
-Comment=Медицинская программа
-Exec=$script_path
-Icon=$icon_path
+Comment=Медицинская программа $module_name
+Exec=env WINEPREFIX="$HOME_DIR/.wine_medorg" WINEARCH=win32 wine "$INSTALL_DIR/$module_name/$exe_name.exe"
+Path=$module_dir
+Icon=wine
 Terminal=false
 Categories=Medical;
+StartupNotify=true
+StartupWMClass=$exe_name.exe
 EOF
         
         chmod +x "$desktop_file"
         chown "$USER:$USER" "$desktop_file"
         
-        echo -e "  ${GREEN}✓${NC} $module_name"
+        # 3. Создаем .desktop файл в системной папке
+        local system_desktop_file="$HOME_DIR/.local/share/applications/medorg-$module_name.desktop"
+        
+        cat > "$system_desktop_file" << EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=$module_name (MedOrg)
+GenericName=Медицинская программа
+Comment=Запуск $module_name через Wine
+Exec=env WINEPREFIX="$HOME_DIR/.wine_medorg" WINEARCH=win32 WINEDEBUG=-all wine "$INSTALL_DIR/$module_name/$exe_name.exe"
+Path=$module_dir
+Icon=wine
+Terminal=false
+Categories=Medical;
+StartupNotify=true
+StartupWMClass=$exe_name.exe
+MimeType=
+Keywords=medical;wine;medorg;
+EOF
+        
+        chmod +x "$system_desktop_file"
+        chown "$USER:$USER" "$system_desktop_file"
+        
+        # 4. Копируем .desktop файл в папку "Медицинские программы"
+        cp "$desktop_file" "$PROGRAM_DIR/"
+        
+        echo -e "  ${GREEN}✓${NC} $module_name (.desktop файл создан)"
         created=$((created + 1))
     done
     
     if [ $created -gt 0 ]; then
+        # Создаем мастер-ярлык для запуска всех программ
+        cat > "$DESKTOP_DIR/Медицинские программы.desktop" << EOF
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Медицинские программы
+Comment=Папка с медицинскими программами
+Exec=xdg-open "$PROGRAM_DIR"
+Icon=folder
+Terminal=false
+Categories=Medical;
+EOF
+        
+        chmod +x "$DESKTOP_DIR/Медицинские программы.desktop"
+        chown "$USER:$USER" "$DESKTOP_DIR/Медицинские программы.desktop"
+        
+        # Обновляем кэш .desktop файлов
+        log "Обновление кэша .desktop файлов..."
+        sudo -u "$USER" update-desktop-database "$HOME_DIR/.local/share/applications" 2>/dev/null || true
+        
         success "Создано ярлыков: $created"
         
-        # Создаем файл со списком модулей
-        cat > "$PROGRAM_DIR/СПИСОК_МОДУЛЕЙ.txt" << EOF
-Установленные модули:
+        # Создаем файл со списком
+        cat > "$PROGRAM_DIR/СПИСОК_ПРОГРАММ.txt" << EOF
+Установленные медицинские программы:
 $(find "$INSTALL_DIR" -maxdepth 1 -type d -name "[A-Z]*" | xargs -I {} basename {} | grep -vE '^(Lib|LibDRV|LibLinux)$' | sort)
 
 Общее количество: $created
+
+Ярлыки созданы в двух местах:
+1. На рабочем столе (отдельные .desktop файлы)
+2. В меню приложений (через ~/.local/share/applications/)
+
+Если ярлыки не отображаются в меню, обновите кэш:
+  update-desktop-database ~/.local/share/applications
 EOF
-        chown "$USER:$USER" "$PROGRAM_DIR/СПИСОК_МОДУЛЕЙ.txt"
+        chown "$USER:$USER" "$PROGRAM_DIR/СПИСОК_ПРОГРАММ.txt"
     else
         warning "Ярлыки не созданы (модули не найдены)"
     fi
@@ -242,75 +246,126 @@ EOF
 create_helper_scripts() {
     log "Создание вспомогательных скриптов..."
     
-    # Скрипт обновления ярлыков
-    cat > "$HOME_DIR/Обновить_ярлыки.sh" << EOF
+    # Скрипт исправления ярлыков
+    cat > "$HOME_DIR/Исправить_ярлыки.sh" << EOF
 #!/bin/bash
-echo "=== ОБНОВЛЕНИЕ ЯРЛЫКОВ МЕДИЦИНСКИХ ПРОГРАММ ==="
+echo "=== ИСПРАВЛЕНИЕ ЯРЛЫКОВ ==="
 echo ""
 
-# Удаляем старые ярлыки
-echo "Удаление старых ярлыков..."
-rm -rf "\$HOME/Рабочий стол/Медицинские программы" 2>/dev/null
-rm -rf "\$HOME/Desktop/Медицинские программы" 2>/dev/null
+# Обновляем кэш .desktop файлов
+echo "Обновление кэша .desktop файлов..."
+update-desktop-database ~/.local/share/applications 2>/dev/null
 
-echo "Создание новых ярлыков..."
-# Запускаем модуль создания ярлыков
-bash <(curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/05-create-shortcuts.sh?cache=\$(date +%s)")
+# Даем права на выполнение всем .desktop файлам
+echo "Исправление прав доступа..."
+find ~/Рабочий\ стол -name "*.desktop" -exec chmod +x {} \; 2>/dev/null
+find ~/Desktop -name "*.desktop" -exec chmod +x {} \; 2>/dev/null
+find ~/.local/share/applications -name "*.desktop" -exec chmod +x {} \; 2>/dev/null
 
 echo ""
-echo "Готово! Проверьте папку 'Медицинские программы' на рабочем столе."
+echo "Готово! Ярлыки должны отображаться в меню."
+echo ""
+echo "Если ярлыки все еще не работают, попробуйте:"
+echo "  1. Выйти из системы и зайти снова"
+echo "  2. Или выполнить: xdg-desktop-menu forceupdate"
 EOF
     
-    chmod +x "$HOME_DIR/Обновить_ярлыки.sh"
-    chown "$USER:$USER" "$HOME_DIR/Обновить_ярлыки.sh"
+    chmod +x "$HOME_DIR/Исправить_ярлыки.sh"
+    chown "$USER:$USER" "$HOME_DIR/Исправить_ярлыки.sh"
     
-    # Скрипт проверки установленных модулей
-    cat > "$HOME_DIR/Проверить_модули.sh" << EOF
+    # Скрипт проверки
+    cat > "$HOME_DIR/Проверить_ярлыки.sh" << EOF
 #!/bin/bash
-echo "=== ПРОВЕРКА УСТАНОВЛЕННЫХ МОДУЛЕЙ ==="
+echo "=== ПРОВЕРКА ЯРЛЫКОВ ==="
 echo ""
 
 INSTALL_DIR="\$HOME/.wine_medorg/drive_c/MedCTech/MedOrg"
 
+echo "1. Установленные программы в \$INSTALL_DIR/:"
+echo "-------------------------------------------"
 if [ -d "\$INSTALL_DIR" ]; then
-    echo "Установленные модули в \$INSTALL_DIR/:"
-    echo "-------------------------------------"
-    find "\$INSTALL_DIR" -maxdepth 1 -type d -name "[A-Z]*" | xargs -I {} basename {} | sort | column -c 80
-    
-    echo ""
-    echo "Обязательные модули:"
-    for module in Lib LibDRV LibLinux; do
-        if [ -d "\$INSTALL_DIR/\$module" ]; then
-            echo "  ✓ \$module"
-        else
-            echo "  ✗ \$module (ОТСУТСТВУЕТ!)"
-        fi
-    done
-    
-    echo ""
-    echo "Дополнительные модули:"
-    find "\$INSTALL_DIR" -maxdepth 1 -type d -name "[A-Z]*" | xargs -I {} basename {} | grep -vE '^(Lib|LibDRV|LibLinux)$' | while read module; do
-        echo "  ✓ \$module"
-    done
+    find "\$INSTALL_DIR" -maxdepth 1 -type d -name "[A-Z]*" | xargs -I {} basename {} | grep -vE '^(Lib|LibDRV|LibLinux)$' | sort
 else
-    echo "Ошибка: директория \$INSTALL_DIR не найдена"
+    echo "  Не найдены!"
+fi
+
+echo ""
+echo "2. Ярлыки на рабочем столе:"
+echo "---------------------------"
+if [ -d "\$HOME/Рабочий стол" ]; then
+    find "\$HOME/Рабочий стол" -name "*.desktop" -exec basename {} \; | sort
+elif [ -d "\$HOME/Desktop" ]; then
+    find "\$HOME/Desktop" -name "*.desktop" -exec basename {} \; | sort
+else
+    echo "  Папка рабочего стола не найдена"
+fi
+
+echo ""
+echo "3. Системные ярлыки:"
+echo "-------------------"
+find "\$HOME/.local/share/applications" -name "medorg-*.desktop" -exec basename {} \; 2>/dev/null | sort
+
+echo ""
+echo "4. Права доступа:"
+echo "----------------"
+echo -n "  .desktop файлы на рабочем столе: "
+if find "\$HOME/Рабочий стол" -name "*.desktop" -executable 2>/dev/null | grep -q .; then
+    echo "OK (есть исполняемые)"
+else
+    echo "НЕТ исполняемых!"
+fi
+
+echo -n "  Системные .desktop файлы: "
+if find "\$HOME/.local/share/applications" -name "*.desktop" -executable 2>/dev/null | grep -q .; then
+    echo "OK"
+else
+    echo "НЕТ исполняемых!"
 fi
 EOF
     
-    chmod +x "$HOME_DIR/Проверить_модули.sh"
-    chown "$USER:$USER" "$HOME_DIR/Проверить_модули.sh"
+    chmod +x "$HOME_DIR/Проверить_ярлыки.sh"
+    chown "$USER:$USER" "$HOME_DIR/Проверить_ярлыки.sh"
+    
+    # Скрипт пересоздания ярлыков
+    cat > "$HOME_DIR/Обновить_ярлыки.sh" << EOF
+#!/bin/bash
+echo "=== ПЕРЕСОЗДАНИЕ ЯРЛЫКОВ ==="
+echo ""
+
+# Удаляем старые ярлыки
+echo "Удаление старых ярлыков..."
+rm -f ~/Рабочий\ стол/*.desktop 2>/dev/null
+rm -f ~/Desktop/*.desktop 2>/dev/null
+rm -f ~/.local/share/applications/medorg-*.desktop 2>/dev/null
+rm -rf ~/Рабочий\ стол/Медицинские\ программы 2>/dev/null
+rm -rf ~/Desktop/Медицинские\ программы 2>/dev/null
+
+echo "Создание новых ярлыков..."
+# Запускаем модуль создания ярлыков
+export TARGET_USER="\$USER"
+export TARGET_HOME="\$HOME"
+bash <(curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/05-create-shortcuts.sh")
+
+echo ""
+echo "Готово! Ярлыки пересозданы."
+echo "Выполните для применения:"
+echo "  ./Исправить_ярлыки.sh"
+EOF
+    
+    chmod +x "$HOME_DIR/Обновить_ярлыки.sh"
+    chown "$USER:$USER" "$HOME_DIR/Обновить_ярлыки.sh"
     
     success "Вспомогательные скрипты созданы"
 }
 
 main() {
     echo ""
-    echo -e "${CYAN}СОЗДАНИЕ ЯРЛЫКОВ ДЛЯ МЕДИЦИНСКИХ ПРОГРАММ${NC}"
+    echo -e "${CYAN}СОЗДАНИЕ ЯРЛЫКОВ (.DESKTOP) ДЛЯ МЕДИЦИНСКИХ ПРОГРАММ${NC}"
     echo ""
     
     check_environment
     get_desktop_path
-    create_shortcuts
+    create_desktop_files
     create_helper_scripts
     
     echo ""
@@ -321,15 +376,21 @@ main() {
     
     echo -e "${CYAN}Создано:${NC}"
     echo -e "${BLUE}────────${NC}"
-    echo -e "  ${GREEN}•${NC} Папка: ${YELLOW}$DESKTOP_DIR/Медицинские программы/${NC}"
-    echo -e "  ${GREEN}•${NC} Вспомогательные скрипты:"
-    echo -e "      ${YELLOW}•${NC} Обновить_ярлыки.sh"
-    echo -e "      ${YELLOW}•${NC} Проверить_модули.sh"
+    echo -e "  ${GREEN}•${NC} Ярлыки на рабочем столе (.desktop файлы)"
+    echo -e "  ${GREEN}•${NC} Системные ярлыки в меню приложений"
+    echo -e "  ${GREEN}•${NC} Папка: ${YELLOW}$PROGRAM_DIR${NC}"
     echo ""
     
-    echo -e "${CYAN}Для обновления ярлыков выполните:${NC}"
-    echo -e "${BLUE}────────────────────────────────${NC}"
-    echo -e "  ${YELLOW}./Обновить_ярлыки.sh${NC}"
+    echo -e "${CYAN}ВАЖНО! Для работы ярлыков:${NC}"
+    echo -e "${BLUE}────────────────────────${NC}"
+    echo -e "  1. ${YELLOW}Выйдите из системы и зайдите снова${NC}"
+    echo -e "  2. Или выполните: ${YELLOW}./Исправить_ярлыки.sh${NC}"
+    echo -e "  3. Ярлыки появятся в меню приложений и на рабочем столе"
+    echo ""
+    
+    echo -e "${CYAN}Проверьте ярлыки:${NC}"
+    echo -e "${BLUE}────────────────${NC}"
+    echo -e "  ${YELLOW}./Проверить_ярлыки.sh${NC}"
     echo ""
 }
 

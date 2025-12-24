@@ -252,16 +252,17 @@ select_user() {
     success "Домашняя директория: $HOME_DIR"
 }
 
-# Выбор модулей
+   # Выбор модулей (ИСПРАВЛЕННАЯ ВЕРСИЯ ДЛЯ ПАЙПА)
 select_modules() {
     if [[ "$AUTO_MODE" == true ]]; then
         SELECTED_MODULES=()
-        log "Автоматический режим: только обязательные модули"
+        log "Автоматический режим: установка только обязательных модулей"
         return
     fi
     
+    # Если модули уже выбраны через аргументы
     if [[ ${#SELECTED_MODULES[@]} -gt 0 ]]; then
-        log "Модули выбраны через аргументы"
+        log "Модули выбраны через аргументы: ${SELECTED_MODULES[*]}"
         return
     fi
     
@@ -284,64 +285,82 @@ select_modules() {
     echo -e "${YELLOW}  n. Только обязательные${NC}"
     echo ""
     
-    # Если запущен через пайп, используем только обязательные
+    # ========== ВАЖНОЕ ИСПРАВЛЕНИЕ: ==========
+    # Если запущено через пайп, используем дефолтные значения
     if [[ ! -t 0 ]]; then
+        log "Режим пайпа: используем только обязательные модули"
         SELECTED_MODULES=()
-        log "Режим пайпа: только обязательные модули"
+        echo "Для выбора модулей используйте аргумент --modules"
+        echo "Например: curl ... | sudo bash -- --modules WrachPol,Admin"
         return
     fi
+    
+    # ========== ИНТЕРАКТИВНЫЙ ВВОД ==========
+    # Перенаправляем ввод с терминала
+    exec < /dev/tty
     
     while true; do
         echo -ne "${GREEN}Выберите модули${NC}"
         echo -ne "${BLUE} (номера через пробел, 'a' или 'n')${NC}"
         echo -ne "${YELLOW}: ${NC}"
-        read choices
         
-        SELECTED_MODULES=()
-        
-        case "$choices" in
-            a|A)
-                SELECTED_MODULES=("${ALL_MODULES[@]}")
-                echo ""
-                echo "Выбраны ВСЕ модули"
-                return
-                ;;
-            n|N)
-                SELECTED_MODULES=()
-                echo ""
-                echo "Только обязательные модули"
-                return
-                ;;
-            *)
-                IFS=' ' read -ra nums <<< "$choices"
-                valid=true
-                
-                for num in "${nums[@]}"; do
-                    if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le ${#ALL_MODULES[@]} ]; then
-                        SELECTED_MODULES+=("${ALL_MODULES[$((num-1))]}")
-                    else
-                        warning "Неверный номер: $num"
-                        valid=false
-                    fi
-                done
-                
-                if [ "$valid" = true ] && [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
-                    SELECTED_MODULES=($(echo "${SELECTED_MODULES[@]}" | tr ' ' '\n' | sort -u))
+        # Читаем ввод с таймаутом
+        if read -t 60 choices; then
+            SELECTED_MODULES=()
+            
+            case "$choices" in
+                a|A)
+                    SELECTED_MODULES=("${ALL_MODULES[@]}")
+                    echo ""
+                    echo "Выбраны ВСЕ модули"
                     break
-                else
-                    warning "Не выбрано ни одного модуля!"
-                fi
-                ;;
-        esac
+                    ;;
+                n|N)
+                    SELECTED_MODULES=()
+                    echo ""
+                    echo "Только обязательные модули"
+                    break
+                    ;;
+                *)
+                    IFS=' ' read -ra nums <<< "$choices"
+                    valid=true
+                    
+                    for num in "${nums[@]}"; do
+                        if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le ${#ALL_MODULES[@]} ]; then
+                            SELECTED_MODULES+=("${ALL_MODULES[$((num-1))]}")
+                        else
+                            warning "Неверный номер: $num"
+                            valid=false
+                        fi
+                    done
+                    
+                    if [ "$valid" = true ] && [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
+                        SELECTED_MODULES=($(echo "${SELECTED_MODULES[@]}" | tr ' ' '\n' | sort -u))
+                        break
+                    else
+                        warning "Не выбрано ни одного модуля!"
+                        echo "Попробуйте еще раз или нажмите Ctrl+C для отмены"
+                    fi
+                    ;;
+            esac
+        else
+            echo ""
+            log "Таймаут (60 секунд). Используем только обязательные модули."
+            SELECTED_MODULES=()
+            break
+        fi
     done
     
     echo ""
-    success "Выбраны модули:"
-    for module in "${SELECTED_MODULES[@]}"; do
-        echo -e "  ${GREEN}•${NC} $module"
-    done
+    if [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
+        success "Выбраны модули:"
+        for module in "${SELECTED_MODULES[@]}"; do
+            echo -e "  ${GREEN}•${NC} $module"
+        done
+    else
+        log "Дополнительные модули не выбраны"
+    fi
 }
-
 # Запуск модулей (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 run_modules() {
     print_section "НАЧАЛО УСТАНОВКИ"
