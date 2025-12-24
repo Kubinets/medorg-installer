@@ -53,13 +53,6 @@ find_midas() {
     if [ -f "$LIB_DIR/midas.dll" ]; then
         success "midas.dll найдена"
         echo -e "  ${GREEN}→${NC} $LIB_DIR/midas.dll"
-        
-        # Информация о файле
-        if command -v file >/dev/null 2>&1; then
-            echo -ne "  ${BLUE}Тип:${NC} "
-            file "$LIB_DIR/midas.dll" | cut -d: -f2-
-        fi
-        
         return 0
     else
         warning "midas.dll не найдена в $LIB_DIR"
@@ -209,22 +202,6 @@ main() {
     echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║      MIDAS.DLL УСПЕШНО ИСПРАВЛЕНА!             ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
-    echo ""
-    
-    echo -e "${CYAN}Выполненные действия:${NC}"
-    echo -e "${BLUE}─────────────────────${NC}"
-    echo -e "  ${GREEN}•${NC} Найдена библиотека midas.dll"
-    echo -e "  ${GREEN}•${NC} Исправлены права доступа"
-    echo -e "  ${GREEN}•${NC} Созданы символьные ссылки"
-    echo -e "  ${GREEN}•${NC} Настроен реестр Wine"
-    echo ""
-    
-    echo -e "${CYAN}Для запуска программ:${NC}"
-    echo -e "${BLUE}────────────────────${NC}"
-    echo "1. Войдите как пользователь: $USER"
-    echo "2. Перейдите в папку программы:"
-    echo -e "   ${YELLOW}cd ~/.wine_medorg/drive_c/MedCTech/MedOrg/Название_модуля${NC}"
-    echo -e "   ${YELLOW}wine ИмяПрограммы.exe${NC}"
     echo ""
 }
 

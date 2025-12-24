@@ -23,7 +23,6 @@ check_environment() {
     
     if [ -z "$TARGET_USER" ] || [ -z "$TARGET_HOME" ]; then
         error "Переменные TARGET_USER и TARGET_HOME не установлены"
-        echo "Убедитесь, что основной скрипт экспортирует эти переменные"
         exit 1
     fi
     
@@ -38,13 +37,6 @@ check_environment() {
     # Проверяем существование пользователя
     if ! id "$USER" >/dev/null 2>&1; then
         error "Пользователь $USER не существует"
-        exit 1
-    fi
-    
-    # Проверяем установлен ли Wine
-    if ! command -v wine >/dev/null 2>&1; then
-        error "Wine не установлен"
-        echo "Сначала установите зависимости через модуль 01-dependencies.sh"
         exit 1
     fi
     
@@ -98,7 +90,6 @@ setup_wine_components() {
         success "Компоненты Wine установлены"
     else
         warning "Winetricks не найден, пропускаем установку компонентов"
-        log "Вы можете установить их позже вручную"
     fi
 }
 
@@ -109,90 +100,10 @@ finalize_setup() {
     # Проверяем создание wine prefix
     if [ -d "$WINE_PREFIX" ]; then
         chown -R "$USER:$USER" "$WINE_PREFIX"
-        log "Wine prefix проверен:"
-        echo -e "  ${GREEN}✓${NC} Директория: $WINE_PREFIX"
-        
-        if [ -f "$WINE_PREFIX/system.reg" ]; then
-            echo -e "  ${GREEN}✓${NC} Файл конфигурации: system.reg"
-        else
-            echo -e "  ${YELLOW}!${NC} Файл конфигурации не найден"
-        fi
-        
-        if [ -d "$WINE_PREFIX/drive_c" ]; then
-            echo -e "  ${GREEN}✓${NC} Виртуальный диск C: создан"
-        fi
-        
         success "Wine prefix готов к работе"
     else
         warning "Wine prefix не был создан"
     fi
-}
-
-# Создание скрипта для ручной настройки
-create_manual_setup_script() {
-    log "Создание скрипта для ручной настройки..."
-    
-    MANUAL_SCRIPT="$HOME_DIR/setup_wine_manually.sh"
-    
-    cat > "$MANUAL_SCRIPT" << EOF
-#!/bin/bash
-# Скрипт ручной настройки Wine
-# Используйте если автоматическая настройка не сработала
-
-echo ""
-echo "╔══════════════════════════════════════════════════╗"
-echo "║        РУЧНАЯ НАСТРОЙКА WINE                   ║"
-echo "╚══════════════════════════════════════════════════╝"
-echo ""
-echo "Пользователь: $USER"
-echo ""
-
-echo "Шаг 1: Удаление старого Wine prefix"
-echo "-----------------------------------"
-read -p "Удалить старый Wine prefix? (y/N): " -n 1 -r
-echo ""
-if [[ \$REPLY =~ ^[Yy]\$ ]]; then
-    rm -rf ~/.wine_medorg
-    echo "✓ Старый prefix удален"
-fi
-
-echo ""
-echo "Шаг 2: Создание нового Wine prefix"
-echo "----------------------------------"
-export WINEARCH=win32
-export WINEPREFIX=~/.wine_medorg
-export WINEDEBUG=-all
-
-echo "Создаем новый Wine prefix..."
-wineboot --init
-echo "✓ Prefix создан"
-
-echo ""
-echo "Шаг 3: Установка компонентов"
-echo "----------------------------"
-if command -v winetricks >/dev/null 2>&1; then
-    echo "Устанавливаем компоненты через Winetricks..."
-    winetricks -q corefonts vcrun6 mdac28
-    echo "✓ Компоненты установлены"
-else
-    echo "Winetricks не найден"
-    echo "Установите: sudo dnf install winetricks"
-fi
-
-echo ""
-echo "╔══════════════════════════════════════════════════╗"
-echo "║          НАСТРОЙКА ЗАВЕРШЕНА                   ║"
-echo "╚══════════════════════════════════════════════════╝"
-echo ""
-echo "Теперь вы можете установить медицинское ПО."
-echo ""
-EOF
-    
-    chmod +x "$MANUAL_SCRIPT"
-    chown "$USER:$USER" "$MANUAL_SCRIPT"
-    
-    success "Скрипт ручной настройки создан"
-    echo -e "  ${BLUE}→${NC} $MANUAL_SCRIPT"
 }
 
 # Основная функция
@@ -213,21 +124,11 @@ main() {
     # Шаг 4: Проверка
     finalize_setup
     
-    # Шаг 5: Скрипт для ручной настройки
-    create_manual_setup_script
-    
     # Итог
     echo ""
     echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║      НАСТРОЙКА WINE УСПЕШНО ЗАВЕРШЕНА!         ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
-    echo ""
-    
-    echo -e "${CYAN}Для ручной настройки выполните:${NC}"
-    echo -e "${BLUE}───────────────────────────────${NC}"
-    echo -e "  ${YELLOW}sudo -u $USER $HOME_DIR/setup_wine_manually.sh${NC}"
-    echo ""
-    echo -e "${BLUE}Далее: копирование медицинского ПО...${NC}"
     echo ""
 }
 
