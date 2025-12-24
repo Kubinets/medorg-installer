@@ -1,5 +1,5 @@
 #!/bin/bash
-# simple_install.sh - СУПЕР ПРОСТОЙ установщик
+# install.sh - СУПЕР ПРОСТОЙ установщик
 
 set -e
 
