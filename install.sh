@@ -263,7 +263,7 @@ select_user() {
     success "Домашняя директория: $HOME_DIR"
 }
 
-# Выбор модулей (обновленная версия)
+# Выбор модулей (исправленная версия - правильное сопоставление номеров)
 select_modules() {
     if [[ "$AUTO_MODE" == true ]]; then
         SELECTED_MODULES=()
@@ -329,7 +329,10 @@ select_modules() {
                 
                 for num in "${nums[@]}"; do
                     if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le ${#ALL_MODULES[@]} ]; then
-                        SELECTED_MODULES+=("${ALL_MODULES[$((num-1))]}")
+                        # ОТЛАДКА: показываем что выбрано
+                        local module_name="${ALL_MODULES[$((num-1))]}"
+                        log "Выбран номер $num: $module_name"
+                        SELECTED_MODULES+=("$module_name")
                     else
                         warning "Неверный номер: $num"
                         valid=false
@@ -337,7 +340,15 @@ select_modules() {
                 done
                 
                 if [ "$valid" = true ] && [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
+                    # Удаляем дубликаты и сортируем
                     SELECTED_MODULES=($(echo "${SELECTED_MODULES[@]}" | tr ' ' '\n' | sort -u))
+                    
+                    # Выводим отладочную информацию
+                    log "Обработанный список модулей:"
+                    for module in "${SELECTED_MODULES[@]}"; do
+                        log "  • $module"
+                    done
+                    
                     break
                 else
                     warning "Не выбрано ни одного модуля!"
@@ -449,8 +460,8 @@ main() {
     
     # Модуль 3: Копирование файлов
     log "Копирование программы..."
-    export SELECTED_MODULES
-    source <(curl -s https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/03-copy-files.sh)
+export SELECTED_MODULES_LIST="${SELECTED_MODULES[*]}"  # ПРАВИЛЬНЫЙ СПОСОБ ПЕРЕДАЧИ
+source <(curl -s https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/03-copy-files.sh)
     
     # Модуль 4: Исправление midas.dll
     log "Исправление midas.dll..."

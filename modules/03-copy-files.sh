@@ -86,17 +86,55 @@ mount_network_share() {
 get_selected_modules() {
     local modules=()
     
-    # Если есть переменная SELECTED_MODULES_LIST
+    # Сначала проверяем SELECTED_MODULES_LIST (исправленный способ передачи)
     if [ -n "$SELECTED_MODULES_LIST" ]; then
+        log "Используем SELECTED_MODULES_LIST: $SELECTED_MODULES_LIST"
+        # Разбиваем строку на массив, учитывая пробелы как разделители
         IFS=' ' read -ra modules <<< "$SELECTED_MODULES_LIST"
-    # Если есть переменная SELECTED_MODULES (как строка)
-    elif [ -n "$SELECTED_MODULES" ]; then
-        # Удаляем лишние символы
-        local clean_str=$(echo "$SELECTED_MODULES" | tr -d '()[]"' | sed 's/^ *//;s/ *$//')
-        IFS=' ' read -ra modules <<< "$clean_str"
+        
+        # ОТЛАДКА: показываем что получили
+        log "Разобранные модули из SELECTED_MODULES_LIST:"
+        for module in "${modules[@]}"; do
+            log "  • $module"
+        done
+        echo "${modules[@]}"
+        return
     fi
     
-    echo "${modules[@]}"
+    # Если SELECTED_MODULES_LIST пуст, пробуем SELECTED_MODULES (старый способ)
+    if [ -n "$SELECTED_MODULES" ]; then
+        log "Используем SELECTED_MODULES: $SELECTED_MODULES"
+        # Пытаемся разобрать строку разных форматов
+        local clean_str=$(echo "$SELECTED_MODULES" | sed "s/\[//g;s/\]//g;s/'//g;s/\"//g;s/(//g;s/)//g")
+        IFS=' ' read -ra modules <<< "$clean_str"
+        
+        # Фильтруем пустые элементы
+        local filtered_modules=()
+        for module in "${modules[@]}"; do
+            if [ -n "$module" ] && [ "$module" != " " ]; then
+                filtered_modules+=("$module")
+            fi
+        done
+        
+        modules=("${filtered_modules[@]}")
+        
+        # ОТЛАДКА
+        if [ ${#modules[@]} -eq 0 ]; then
+            log "Не удалось разобрать модули из SELECTED_MODULES"
+        else
+            log "Разобранные модули из SELECTED_MODULES:"
+            for module in "${modules[@]}"; do
+                log "  • $module"
+            done
+        fi
+        
+        echo "${modules[@]}"
+        return
+    fi
+    
+    # Если ничего не найдено
+    log "Модули не указаны"
+    echo ""
 }
 
 # Копирование файлов (ТОЛЬКО ВЫБРАННЫЕ МОДУЛИ)
