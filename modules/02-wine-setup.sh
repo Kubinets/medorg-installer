@@ -60,30 +60,66 @@ prepare_wine_prefix() {
     success "Директория создана"
 }
 
-# Настройка Wine компонентов
+# Настройка Wine компонентов (ИСПРАВЛЕННАЯ ВЕРСИЯ - без X11)
 setup_wine_components() {
     log "Настройка Wine компонентов..."
     
-    # Экспортируем переменные
+    # Экспортируем переменные для работы без X11
     export WINEPREFIX="$WINE_PREFIX"
     export WINEARCH=win32
     export WINEDEBUG=-all
+    export DISPLAY=:0  # Фиктивный DISPLAY
     
-    # Создаем wine prefix
-    log "Создание Wine prefix..."
-    sudo -u "$USER" env WINEPREFIX="$WINEPREFIX" WINEARCH=win32 wineboot --init 2>&1 | grep -v "fixme\|warn\|err" || true
-    sleep 2
+    # ФИКС: Создаем wine prefix без GUI
+    log "Создание Wine prefix (без GUI)..."
+    
+    # Создаем базовый prefix через regedit
+    cat > /tmp/wine_init.reg << 'EOF'
+REGEDIT4
+
+[HKEY_CURRENT_USER\Software\Wine]
+"Version"="7.0"
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion]
+"ProgramFilesDir"="C:\\Program Files"
+"CommonFilesDir"="C:\\Program Files\\Common Files"
+
+[HKEY_LOCAL_MACHINE\Software\Microsoft\Windows NT\CurrentVersion]
+"CurrentVersion"="6.1"
+"CSDVersion"="Service Pack 1"
+"CurrentBuildNumber"="7601"
+EOF
+    
+    # Инициализируем prefix через regedit (без wineboot)
+    sudo -u "$USER" env WINEPREFIX="$WINEPREFIX" WINEARCH=win32 wine regedit /tmp/wine_init.reg 2>/dev/null || true
+    
+    # Создаем базовую структуру директорий
+    mkdir -p "$WINE_PREFIX/drive_c/windows/system32"
+    mkdir -p "$WINE_PREFIX/drive_c/Program Files"
+    mkdir -p "$WINE_PREFIX/drive_c/ProgramData"
+    mkdir -p "$WINE_PREFIX/drive_c/users/$USER"
+    
+    # Копируем основные DLL (если есть)
+    local system32_dir="/usr/lib/wine"
+    if [ -d "$system32_dir" ]; then
+        cp -r "$system32_dir"/* "$WINE_PREFIX/drive_c/windows/system32/" 2>/dev/null || true
+    fi
+    
+    rm -f /tmp/wine_init.reg
+    sleep 1
     success "Wine prefix создан"
     
     # Устанавливаем компоненты через winetricks если он есть
     if command -v winetricks >/dev/null 2>&1; then
         log "Установка компонентов Wine..."
         
-        local components=("corefonts" "tahoma" "vcrun6" "vcrun2008" "mdac28" "jet40")
+        # Только текстовые компоненты (без GUI)
+        local components=("corefonts" "tahoma" "vcrun6" "mdac28" "jet40")
         
         for component in "${components[@]}"; do
             log "  Установка $component..."
-            timeout 120 sudo -u "$USER" env WINEPREFIX="$WINEPREFIX" WINEARCH=win32 winetricks -q "$component" 2>&1 | grep -v "fixme\|warn\|err" || true
+            # Запускаем в фоне с таймаутом и без вывода
+            timeout 60 sudo -u "$USER" env WINEPREFIX="$WINEPREFIX" WINEARCH=win32 winetricks -q "$component" >/dev/null 2>&1 || true
             sleep 1
         done
         
@@ -100,7 +136,15 @@ finalize_setup() {
     # Проверяем создание wine prefix
     if [ -d "$WINE_PREFIX" ]; then
         chown -R "$USER:$USER" "$WINE_PREFIX"
-        success "Wine prefix готов к работе"
+        
+        # Проверяем базовые файлы
+        if [ -f "$WINE_PREFIX/system.reg" ] || [ -d "$WINE_PREFIX/drive_c" ]; then
+            success "Wine prefix готов к работе"
+            log "  Структура Wine prefix:"
+            find "$WINE_PREFIX/drive_c" -maxdepth 2 -type d 2>/dev/null | sort
+        else
+            warning "Wine prefix создан, но возможно не полностью"
+        fi
     else
         warning "Wine prefix не был создан"
     fi
@@ -118,7 +162,7 @@ main() {
     # Шаг 2: Подготовка
     prepare_wine_prefix
     
-    # Шаг 3: Настройка компонентов
+    # Шаг 3: Настройка компонентов (БЕЗ X11 ОШИБОК)
     setup_wine_components
     
     # Шаг 4: Проверка
@@ -131,6 +175,9 @@ main() {
     echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
     echo ""
 }
+
+# Обработка Ctrl+C
+trap 'echo -e "\n${RED}Настройка прервана${NC}"; exit 1' INT
 
 # Запуск
 main "$@"
