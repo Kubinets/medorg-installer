@@ -30,44 +30,47 @@ success() { echo -e "${GREEN}✓${NC} $1"; }
 warning() { echo -e "${YELLOW}!${NC} $1"; }
 error() { echo -e "${RED}✗${NC} $1"; }
 
-# Проверка системы
-detect_system() {
-    log "Определение операционной системы..."
-    
-    if [ -f /etc/fedora-release ] || [ -f /etc/redhat-release ]; then
-        OS="fedora"
-        success "Обнаружена Fedora/RHEL/CentOS"
-    elif [ -f /etc/debian_version ]; then
-        OS="debian"
-        success "Обнаружена Debian/Ubuntu"
-    elif [ -f /etc/arch-release ]; then
-        OS="arch"
-        success "Обнаружена Arch Linux"
-    else
-        OS="unknown"
-        warning "Неизвестная ОС, попробуем Fedora пакеты"
-    fi
-}
-
-# Установка winetricks
+# Установка winetricks (ИСПРАВЛЕННАЯ)
 install_winetricks() {
     log "Установка Winetricks..."
     
-    if ! command -v winetricks >/dev/null 2>&1; then
-        echo -n "  Скачивание winetricks... "
-        if wget -q https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks -O /tmp/winetricks; then
-            echo -e "${GREEN}✓${NC}"
-            echo -n "  Установка в /usr/local/bin... "
-            chmod +x /tmp/winetricks
-            mv /tmp/winetricks /usr/local/bin/
-            echo -e "${GREEN}✓${NC}"
-            log "Winetricks установлен"
+    if command -v winetricks >/dev/null 2>&1; then
+        success "Winetricks уже установлен"
+        return
+    fi
+    
+    echo -n "  Скачивание winetricks... "
+    if wget -q https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks -O /usr/local/bin/winetricks; then
+        echo -e "${GREEN}✓${NC}"
+        chmod +x /usr/local/bin/winetricks
+        
+        # Проверяем что winetricks доступен
+        if command -v winetricks >/dev/null 2>&1; then
+            echo -n "  Проверка версии... "
+            winetricks --version 2>/dev/null | head -1 | tr -d '\n'
+            echo -e " ${GREEN}✓${NC}"
+            success "Winetricks установлен"
         else
-            echo -e "${RED}✗${NC}"
-            warning "Не удалось скачать winetricks"
+            echo -n "  Добавление в PATH... "
+            ln -sf /usr/local/bin/winetricks /usr/bin/winetricks 2>/dev/null || true
+            echo -e "${GREEN}✓${NC}"
         fi
     else
-        success "Winetricks уже установлен"
+        echo -e "${RED}✗${NC}"
+        warning "Не удалось скачать winetricks"
+    fi
+}
+
+# Установка иконок и инструментов
+install_icon_tools() {
+    log "Установка инструментов для иконок..."
+    
+    if command -v dnf >/dev/null 2>&1; then
+        dnf install -y icoutils ImageMagick --quiet
+        echo -e "  ${GREEN}✓${NC} icoutils и ImageMagick установлены"
+    elif command -v apt-get >/dev/null 2>&1; then
+        apt-get install -y icoutils imagemagick
+        echo -e "  ${GREEN}✓${NC} icoutils и ImageMagick установлены"
     fi
 }
 
@@ -93,10 +96,13 @@ install_fedora_deps() {
     
     echo ""
     echo -e "${CYAN}Этап 5: Wine и компоненты${NC}"
-    dnf install -y wine wine.i686 icoutils --quiet
+    dnf install -y wine wine.i686 --quiet
     
     # Установка winetricks
     install_winetricks
+    
+    # Установка инструментов для иконок
+    install_icon_tools
     
     success "Зависимости установлены"
 }
@@ -111,29 +117,38 @@ install_dependencies() {
         exit 1
     fi
     
-    # Определяем ОС
-    detect_system
-    
     echo ""
     echo -e "${PURPLE}Начинаем установку зависимостей...${NC}"
     echo ""
     
-    # Устанавливаем в зависимости от ОС
-    case $OS in
-        "fedora")
-            install_fedora_deps
-            ;;
-        "debian")
-            log "Для Debian/Ubuntu:"
-            echo "sudo apt-get update && sudo apt-get install wine winetricks cabextract p7zip-full"
-            ;;
-        *)
-            install_fedora_deps
-            ;;
-    esac
+    # Для Fedora/RHEL
+    install_fedora_deps
     
-    success "Зависимости успешно установлены"
+    # Финальная проверка
     echo ""
+    echo -e "${CYAN}Проверка установленных компонентов:${NC}"
+    
+    local checks=(
+        "wine --version 2>/dev/null"
+        "curl --version 2>/dev/null"
+        "winetricks --version 2>/dev/null"
+        "wrestool --help 2>/dev/null"
+        "convert --version 2>/dev/null"
+    )
+    
+    local check_names=("Wine" "cURL" "Winetricks" "Wrestool" "ImageMagick")
+    
+    for i in "${!checks[@]}"; do
+        echo -n "  ${check_names[i]}... "
+        if eval "${checks[i]}" &>/dev/null; then
+            echo -e "${GREEN}✓${NC}"
+        else
+            echo -e "${YELLOW}!${NC}"
+        fi
+    done
+    
+    echo ""
+    success "Зависимости успешно установлены"
 }
 
 # Запуск

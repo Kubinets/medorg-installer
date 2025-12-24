@@ -92,7 +92,7 @@ mount_network_share() {
     fi
 }
 
-# Копирование файлов
+# Копирование файлов (ТОЛЬКО ВЫБРАННЫЕ МОДУЛИ)
 copy_files() {
     local mount_point="/tmp/medorg_mount_$$"
     
@@ -100,9 +100,74 @@ copy_files() {
     if mount_network_share "$mount_point"; then
         log "Начинаем копирование файлов..."
         
-        # Копируем ВСЕ содержимое
-        log "Копируем все файлы из сетевой папки..."
-        cp -r "$mount_point"/* "$TARGET_DIR"/ 2>/dev/null || true
+        # Проверяем, что в сетевой папке есть файлы
+        if [ ! -d "$mount_point" ] || [ -z "$(ls -A "$mount_point" 2>/dev/null)" ]; then
+            error "Сетевая папка пуста или недоступна"
+            umount "$mount_point" 2>/dev/null || true
+            rmdir "$mount_point" 2>/dev/null || true
+            return 1
+        fi
+        
+        # Обязательные модули (всегда копируем)
+        local required_modules=("Lib" "LibDRV" "LibLinux")
+        
+        # Выбранные пользователем модули
+        local selected_modules=()
+        if [ -n "$SELECTED_MODULES" ]; then
+            # Если SELECTED_MODULES передана как строка
+            if [[ "$SELECTED_MODULES" == "("* ]]; then
+                # Это массив в строке, нужно распарсить
+                selected_modules_str=$(echo "$SELECTED_MODULES" | sed 's/^(\(.*\))$/\1/')
+                IFS=' ' read -ra selected_modules <<< "$selected_modules_str"
+            else
+                # Это обычный массив
+                selected_modules=("${SELECTED_MODULES[@]}")
+            fi
+        fi
+        
+        log "Модули для копирования:"
+        echo -e "${GREEN}Обязательные:${NC}"
+        for module in "${required_modules[@]}"; do
+            echo -e "  ${GREEN}•${NC} $module"
+        done
+        
+        if [ ${#selected_modules[@]} -gt 0 ]; then
+            echo ""
+            echo -e "${CYAN}Выбранные пользователем:${NC}"
+            for module in "${selected_modules[@]}"; do
+                echo -e "  ${CYAN}•${NC} $module"
+            done
+        fi
+        
+        echo ""
+        
+        # Копируем обязательные модули
+        log "Копирование обязательных модулей..."
+        for module in "${required_modules[@]}"; do
+            echo -n "  $module... "
+            if [ -d "$mount_point/$module" ]; then
+                cp -r "$mount_point/$module" "$TARGET_DIR/" 2>/dev/null || true
+                echo -e "${GREEN}✓${NC}"
+            else
+                echo -e "${RED}✗${NC} (не найден в сетевой папке)"
+            fi
+        done
+        
+        # Копируем выбранные модули
+        if [ ${#selected_modules[@]} -gt 0 ]; then
+            log "Копирование выбранных модулей..."
+            for module in "${selected_modules[@]}"; do
+                echo -n "  $module... "
+                if [ -d "$mount_point/$module" ]; then
+                    cp -r "$mount_point/$module" "$TARGET_DIR/" 2>/dev/null || true
+                    echo -e "${GREEN}✓${NC}"
+                else
+                    echo -e "${RED}✗${NC} (не найден в сетевой папке)"
+                fi
+            done
+        else
+            log "Пользователь не выбрал дополнительные модули"
+        fi
         
         # Устанавливаем права
         chown -R "$USER:$USER" "$TARGET_DIR"/*
@@ -110,8 +175,8 @@ copy_files() {
         success "Файлы скопированы"
         
         # Показываем что скопировалось
-        log "Содержимое целевой директории:"
-        ls -la "$TARGET_DIR" | head -15
+        log "Скопированные модули:"
+        ls -la "$TARGET_DIR" | grep -E '^d' | awk '{print "  " $9}' | grep -E '^[A-Z]'
         
         # Отключаем сетевую папку
         umount "$mount_point" 2>/dev/null || true
@@ -122,15 +187,29 @@ copy_files() {
         warning "Не удалось подключиться к сетевой папке"
         log "Возможно, файлы уже скопированы ранее или нет доступа"
         
-        # Проверяем, есть ли уже файлы
-        if [ -d "$TARGET_DIR/Lib" ]; then
-            success "Файлы уже существуют в целевой директории"
+        # Проверяем, есть ли уже обязательные модули
+        local all_required_exist=true
+        for module in "Lib" "LibDRV" "LibLinux"; do
+            if [ ! -d "$TARGET_DIR/$module" ]; then
+                all_required_exist=false
+                break
+            fi
+        done
+        
+        if [ "$all_required_exist" = true ]; then
+            success "Обязательные модули уже существуют"
             return 0
         else
-            error "Нет доступа к файлам."
+            error "Не удалось получить файлы программы"
             log "Попробуйте подключиться к сетевой папке вручную:"
             echo "mkdir -p /mnt/medorg"
             echo "mount -t cifs //10.0.1.11/auto /mnt/medorg -o username=Администратор,password=Ybyjxrf30lh*"
+            echo ""
+            echo "Затем скопируйте модули:"
+            echo "cp -r /mnt/medorg/Lib /mnt/medorg/LibDRV /mnt/medorg/LibLinux $TARGET_DIR/"
+            if [ ${#selected_modules[@]} -gt 0 ]; then
+                echo "cp -r /mnt/medorg/{$(IFS=,; echo "${selected_modules[*]}")} $TARGET_DIR/"
+            fi
             return 1
         fi
     fi
@@ -145,7 +224,7 @@ main() {
     # Проверка окружения
     check_environment
     
-    # Копирование файлов
+    # Копирование файлов (только выбранных модулей)
     copy_files
     
     # Итог
@@ -153,6 +232,13 @@ main() {
     echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║      КОПИРОВАНИЕ УСПЕШНО ЗАВЕРШЕНО!           ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    # Показываем что установлено
+    log "Установленные модули в $TARGET_DIR/:"
+    if [ -d "$TARGET_DIR" ]; then
+        ls -la "$TARGET_DIR" | grep -E '^d' | awk '{print "  " $9}' | sort | column -c 80
+    fi
     echo ""
 }
 
