@@ -188,9 +188,9 @@ select_user() {
         echo ""
         
         while true; do
-            echo -e "${YELLOW}Введите имя пользователя для установки${NC}"
-            echo -e "${BLUE} (или 'new' для создания нового)${NC}"
-            echo -n "${GREEN} [god]: ${NC}"
+             echo "Введите имя пользователя для установки"
+            echo "(или 'new' для создания нового)"
+            echo -n "[god]: "
             read input_user
             
             USER="${input_user:-god}"
