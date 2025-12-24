@@ -66,11 +66,18 @@ install_icon_tools() {
     log "Установка инструментов для иконок..."
     
     if command -v dnf >/dev/null 2>&1; then
-        dnf install -y icoutils ImageMagick --quiet
-        echo -e "  ${GREEN}✓${NC} icoutils и ImageMagick установлены"
+        dnf install -y icoutils ImageMagick libicns-utils --quiet
+        echo -e "  ${GREEN}✓${NC} icoutils, ImageMagick и libicns-utils установлены"
     elif command -v apt-get >/dev/null 2>&1; then
-        apt-get install -y icoutils imagemagick
-        echo -e "  ${GREEN}✓${NC} icoutils и ImageMagick установлены"
+        apt-get install -y icoutils imagemagick libicns-utils
+        echo -e "  ${GREEN}✓${NC} icoutils, ImageMagick и libicns-utils установлены"
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y icoutils ImageMagick libicns-utils
+        echo -e "  ${GREEN}✓${NC} icoutils, ImageMagick и libicns-utils установлены"
+    else
+        warning "Менеджер пакетов не найден, установите вручную:"
+        echo "    sudo dnf install icoutils ImageMagick libicns-utils"
+        echo "    или sudo apt-get install icoutils imagemagick libicns-utils"
     fi
 }
 
@@ -128,15 +135,16 @@ install_dependencies() {
     echo ""
     echo -e "${CYAN}Проверка установленных компонентов:${NC}"
     
-    local checks=(
+   local checks=(
         "wine --version 2>/dev/null"
         "curl --version 2>/dev/null"
         "winetricks --version 2>/dev/null"
         "wrestool --help 2>/dev/null"
         "convert --version 2>/dev/null"
+        "icotool --help 2>/dev/null"
     )
     
-    local check_names=("Wine" "cURL" "Winetricks" "Wrestool" "ImageMagick")
+    local check_names=("Wine" "cURL" "Winetricks" "Wrestool" "ImageMagick" "Icotool")
     
     for i in "${!checks[@]}"; do
         echo -n "  ${check_names[i]}... "
