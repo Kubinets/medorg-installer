@@ -1,5 +1,5 @@
 #!/bin/bash
-# install_fixed.sh - РАБОЧИЙ установщик
+# install.sh - РАБОЧИЙ установщик
 
 set -e
 
