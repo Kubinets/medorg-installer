@@ -357,33 +357,26 @@ select_modules() {
     done
 }
 
-# Запуск модулей
+# Запуск модулей (ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ)
 run_modules() {
-     print_section "НАЧАЛО УСТАНОВКИ"
+    print_section "НАЧАЛО УСТАНОВКИ"
     log "Начинаем установку..."
-    
-    # Экспортируем переменные для дочерних скриптов
-    export TARGET_USER="$USER"
-    export TARGET_HOME="$HOME_DIR"
-    
-    # ФИКС: Правильно передаем SELECTED_MODULES как строку
-    if [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
-        # Преобразуем массив в строку для передачи
-        SELECTED_MODULES_STR=$(printf "%s " "${SELECTED_MODULES[@]}")
-        export SELECTED_MODULES="$SELECTED_MODULES_STR"
-        log "Выбранные модули для копирования: $SELECTED_MODULES_STR"
-    else
-        export SELECTED_MODULES=""
-        log "Пользователь не выбрал дополнительные модули"
-    fi
-    
-    export REQUIRED
-    export ALL_MODULES
-    export INPUT_METHOD
     
     # Создаем временную директорию для модулей
     local temp_dir="/tmp/medorg_install_$$"
     mkdir -p "$temp_dir"
+    
+    # Сохраняем переменные в файл для передачи в дочерние скрипты
+    local env_file="$temp_dir/install_env.sh"
+    
+    cat > "$env_file" << EOF
+export TARGET_USER="$USER"
+export TARGET_HOME="$HOME_DIR"
+export SELECTED_MODULES="$SELECTED_MODULES"
+export SELECTED_MODULES_LIST="${SELECTED_MODULES[*]}"
+export INPUT_METHOD="$INPUT_METHOD"
+export AUTO_MODE="$AUTO_MODE"
+EOF
     
     # Модуль 1: Зависимости
     log "Установка зависимостей..."
@@ -397,11 +390,35 @@ run_modules() {
         warning "Модуль Wine завершился с ошибками, продолжаем..."
     fi
     
-    # Модуль 3: Копирование файлов
+    # Модуль 3: Копирование файлов - ГЛАВНЫЙ ФИКС
     log "Копирование программы..."
-    if ! bash <(curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/03-copy-files.sh?cache=$(date +%s)"); then
+    
+    # Скачиваем скрипт копирования
+    local copy_script_url="https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/03-copy-files.sh?cache=$(date +%s)"
+    local copy_script_content=$(curl -s "$copy_script_url")
+    
+    # Создаем временный скрипт с правильными переменными
+    cat > /tmp/copy_fixed_$$.sh << EOF
+#!/bin/bash
+# Загружаем переменные окружения
+source "$env_file"
+
+# Экспортируем обязательные переменные
+export REQUIRED="Lib LibDRV LibLinux"
+export ALL_MODULES="Admin BolList DayStac Dispanser DopDisp Econ EconRA EconRost Fluoro Kiosk KTFOMSAgentDisp KTFOMSAgentGosp KTFOMSAgentPolis KTFOMSAgentReg KubNaprAgent MainSestStac MedOsm MISAgent OtdelStac Pokoy RegPeople RegPol San SanDoc SpravkaOMS StatPol StatStac StatYear Tablo Talon Vedom VistaAgent WrachPol"
+
+$copy_script_content
+EOF
+    
+    chmod +x /tmp/copy_fixed_$$.sh
+    
+    # Запускаем с правильными переменными
+    if ! bash /tmp/copy_fixed_$$.sh; then
         warning "Модуль копирования завершился с ошибками, продолжаем..."
     fi
+    
+    # Удаляем временный скрипт
+    rm -f /tmp/copy_fixed_$$.sh
     
     # Модуль 4: Исправление midas.dll
     log "Исправление midas.dll..."
@@ -414,6 +431,9 @@ run_modules() {
     if ! bash <(curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/05-create-shortcuts.sh?cache=$(date +%s)"); then
         warning "Модуль ярлыков завершился с ошибками, продолжаем..."
     fi
+    
+    # Удаляем временные файлы
+    rm -rf "$temp_dir"
     
     # Создаем финальный фикс-скрипт
     create_final_script
@@ -491,6 +511,15 @@ show_completion() {
     echo -e "Домашняя директория: ${YELLOW}$HOME_DIR${NC}"
     echo -e "Wine prefix:         ${YELLOW}$HOME_DIR/.wine_medorg${NC}"
     echo ""
+    
+    if [ -n "$SELECTED_MODULES" ] && [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
+        echo -e "${CYAN}Выбранные модули:${NC}"
+        echo -e "${BLUE}────────────────${NC}"
+        for module in "${SELECTED_MODULES[@]}"; do
+            echo -e "  ${GREEN}•${NC} $module"
+        done
+        echo ""
+    fi
     
     echo -e "${CYAN}Для запуска программ:${NC}"
     echo -e "${BLUE}────────────────────${NC}"

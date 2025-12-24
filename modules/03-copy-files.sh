@@ -1,5 +1,5 @@
 #!/bin/bash
-# Копирование программы с настройкой сетевой папки - фиксированная версия
+# Копирование программы с настройкой сетевой папки - ИСПРАВЛЕННАЯ версия
 
 set -e
 
@@ -82,31 +82,21 @@ mount_network_share() {
     fi
 }
 
-# Функция для парсинга SELECTED_MODULES
-parse_selected_modules() {
-    local modules_array=()
+# Парсинг выбранных модулей (простая версия)
+get_selected_modules() {
+    local modules=()
     
-    # Если переменная пустая
-    if [ -z "$SELECTED_MODULES" ]; then
-        echo "${modules_array[@]}"
-        return
+    # Если есть переменная SELECTED_MODULES_LIST
+    if [ -n "$SELECTED_MODULES_LIST" ]; then
+        IFS=' ' read -ra modules <<< "$SELECTED_MODULES_LIST"
+    # Если есть переменная SELECTED_MODULES (как строка)
+    elif [ -n "$SELECTED_MODULES" ]; then
+        # Удаляем лишние символы
+        local clean_str=$(echo "$SELECTED_MODULES" | tr -d '()[]"' | sed 's/^ *//;s/ *$//')
+        IFS=' ' read -ra modules <<< "$clean_str"
     fi
     
-    # Пробуем разные форматы
-    # Формат 1: Массив как строка "(module1 module2)"
-    if [[ "$SELECTED_MODULES" =~ ^\(.*\)$ ]]; then
-        # Удаляем скобки
-        local modules_str=$(echo "$SELECTED_MODULES" | sed 's/^(\(.*\))$/\1/')
-        IFS=' ' read -ra modules_array <<< "$modules_str"
-    # Формат 2: Простая строка "module1 module2"
-    elif [[ "$SELECTED_MODULES" =~ [[:space:]] ]]; then
-        IFS=' ' read -ra modules_array <<< "$SELECTED_MODULES"
-    # Формат 3: Один модуль
-    else
-        modules_array=("$SELECTED_MODULES")
-    fi
-    
-    echo "${modules_array[@]}"
+    echo "${modules[@]}"
 }
 
 # Копирование файлов (ТОЛЬКО ВЫБРАННЫЕ МОДУЛИ)
@@ -129,7 +119,7 @@ copy_files() {
         local required_modules=("Lib" "LibDRV" "LibLinux")
         
         # Получаем выбранные модули
-        local selected_modules=($(parse_selected_modules))
+        local selected_modules=($(get_selected_modules))
         
         log "Модули для копирования:"
         echo ""
@@ -144,11 +134,11 @@ copy_files() {
             for module in "${selected_modules[@]}"; do
                 echo -e "  ${CYAN}•${NC} $module"
             done
+            echo ""
         else
             echo -e "${YELLOW}Дополнительные модули не выбраны${NC}"
+            echo ""
         fi
-        
-        echo ""
         
         # Копируем обязательные модули
         log "Копирование обязательных модулей..."
@@ -173,6 +163,11 @@ copy_files() {
             log "Копирование выбранных модулей..."
             local copied_selected=0
             for module in "${selected_modules[@]}"; do
+                # Проверяем, что модуль не обязательный (на всякий случай)
+                if [[ " ${required_modules[@]} " =~ " ${module} " ]]; then
+                    continue
+                fi
+                
                 echo -n "  $module... "
                 if [ -d "$mount_point/$module" ]; then
                     cp -r "$mount_point/$module" "$TARGET_DIR/" 2>/dev/null
@@ -208,9 +203,9 @@ copy_files() {
         fi
         
         # Показываем что скопировалось
-        log "Скопированные модули:"
+        log "Скопированные модули в $TARGET_DIR:"
         if [ -d "$TARGET_DIR" ]; then
-            ls -la "$TARGET_DIR" | grep -E '^d' | awk '{print "  " $9}' | grep -E '^[A-Z]' | sort | column -c 80
+            ls -la "$TARGET_DIR" | grep -E '^d' | awk '{print "  " $9}' | grep -E '^[A-Z]' | sort
         fi
         
         # Отключаем сетевую папку
@@ -236,13 +231,17 @@ copy_files() {
             echo "2. Скопируйте модули:"
             echo "   sudo cp -r /mnt/medorg/Lib /mnt/medorg/LibDRV /mnt/medorg/LibLinux $TARGET_DIR/"
             echo ""
-            if [ -n "$SELECTED_MODULES" ]; then
+            
+            # Получаем выбранные модули для показа в инструкции
+            local selected_modules=($(get_selected_modules))
+            if [ ${#selected_modules[@]} -gt 0 ]; then
                 echo "   # И выбранные модули:"
                 for module in "${selected_modules[@]}"; do
                     echo "   sudo cp -r /mnt/medorg/$module $TARGET_DIR/"
                 done
+                echo ""
             fi
-            echo ""
+            
             echo "3. Исправьте права:"
             echo "   sudo chown -R $USER:$USER $TARGET_DIR"
             echo "   sudo chmod -R 755 $TARGET_DIR"
@@ -251,31 +250,47 @@ copy_files() {
     fi
 }
 
+# Отладка - показываем переменные
+debug_info() {
+    echo ""
+    echo -e "${CYAN}=== ОТЛАДОЧНАЯ ИНФОРМАЦИЯ ===${NC}"
+    echo -e "TARGET_USER: ${GREEN}$TARGET_USER${NC}"
+    echo -e "TARGET_HOME: ${GREEN}$TARGET_HOME${NC}"
+    echo -e "SELECTED_MODULES: ${YELLOW}$SELECTED_MODULES${NC}"
+    echo -e "SELECTED_MODULES_LIST: ${YELLOW}$SELECTED_MODULES_LIST${NC}"
+    echo -e "INPUT_METHOD: ${BLUE}$INPUT_METHOD${NC}"
+    echo -e "AUTO_MODE: ${BLUE}$AUTO_MODE${NC}"
+    echo ""
+}
+
 # Основная функция
 main() {
     echo ""
-    echo -e "${CYAN}КОПИРОВАНИЕ ПРОГРАММ ИЗ СЕТЕВОЙ ПАПКИ${NC}"
+    echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}          КОПИРОВАНИЕ ПРОГРАММ ИЗ СЕТЕВОЙ ПАПКИ         ${NC}"
+    echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"
     echo ""
+    
+    # Показываем отладочную информацию
+    debug_info
     
     # Проверка окружения
     check_environment
-    
-    # Показываем что будем копировать
-    log "Параметры копирования:"
-    echo -e "  ${BLUE}•${NC} Пользователь: ${GREEN}$USER${NC}"
-    echo -e "  ${BLUE}•${NC} Целевая папка: ${YELLOW}$TARGET_DIR${NC}"
-    echo -e "  ${BLUE}•${NC} SELECTED_MODULES: ${CYAN}$SELECTED_MODULES${NC}"
-    echo ""
     
     # Копирование файлов (только выбранных модулей)
     copy_files
     
     # Итог
     echo ""
-    echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║      КОПИРОВАНИЕ ЗАВЕРШЕНО!                    ║${NC}"
-    echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
+    echo -e "${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║            КОПИРОВАНИЕ ЗАВЕРШЕНО!                  ║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
     echo ""
+    
+    if [ -d "$TARGET_DIR" ]; then
+        local total_modules=$(find "$TARGET_DIR" -maxdepth 1 -type d -name '[A-Z]*' | wc -l)
+        success "Всего скопировано модулей: $total_modules"
+    fi
 }
 
 # Обработка прерывания
@@ -285,4 +300,4 @@ trap 'echo -e "\n${RED}Копирование прервано${NC}";
       exit 1' INT
 
 # Запуск
-main "$@"
+main "$@" 
