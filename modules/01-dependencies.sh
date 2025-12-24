@@ -49,32 +49,100 @@ detect_system() {
     fi
 }
 
-# Установка winetricks (ИСПРАВЛЕННАЯ)
+# Установка winetricks (ИСПРАВЛЕННАЯ ВЕРСИЯ)
 install_winetricks() {
     log "Установка Winetricks..."
     
-    if ! command -v winetricks >/dev/null 2>&1; then
-        echo -n "  Скачивание winetricks... "
-        if wget -q https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks -O /tmp/winetricks; then
+    # Удаляем старые версии winetricks
+    echo -n "  Проверка старых версий winetricks... "
+    
+    # Удаляем winetricks, установленный вручную (если есть)
+    if [ -f /usr/local/bin/winetricks ]; then
+        rm -f /usr/local/bin/winetricks
+        echo -e "${GREEN}✓${NC} (удален ручной winetricks)"
+    elif [ -f /tmp/winetricks ]; then
+        rm -f /tmp/winetricks
+        echo -e "${GREEN}✓${NC} (удален временный файл)"
+    else
+        echo -e "${GREEN}✓${NC} (старых версий не найдено)"
+    fi
+    
+    # Удаляем winetricks через dnf (если установлен как пакет)
+    echo -n "  Удаление winetricks через dnf (если установлен)... "
+    if dnf remove -y winetricks 2>/dev/null | grep -q "Complete\|не установлен"; then
+        echo -e "${GREEN}✓${NC}"
+    else
+        echo -e "${YELLOW}!${NC}"
+    fi
+    
+    # Очищаем кэш dnf
+    dnf clean all -q
+    
+    echo ""
+    echo -e "${CYAN}Установка winetricks через dnf...${NC}"
+    
+    # Устанавливаем winetricks через dnf
+    echo -n "  dnf install winetricks... "
+    if dnf install -y winetricks 2>&1 | grep -q "Complete\|уже установлен"; then
+        echo -e "${GREEN}✓${NC}"
+        
+        # Проверяем установку
+        echo -n "  Проверка установки... "
+        if command -v winetricks >/dev/null 2>&1; then
             echo -e "${GREEN}✓${NC}"
-            echo -n "  Установка в /usr/local/bin... "
-            chmod +x /tmp/winetricks
-            mv /tmp/winetricks /usr/local/bin/
+            log "Версия: $(winetricks --version 2>/dev/null | head -1 || echo 'неизвестно')"
             
-            # Проверяем установку
-            if command -v winetricks >/dev/null 2>&1; then
-                echo -e "${GREEN}✓${NC}"
-                log "Версия: $(winetricks --version 2>/dev/null | head -1 || echo 'неизвестно')"
-            else
-                echo -e "${YELLOW}!${NC}"
-                warning "Winetricks не установился правильно"
+            # Проверяем путь к winetricks (должен быть в /usr/bin/)
+            local winetricks_path=$(which winetricks)
+            echo "  Расположение: $winetricks_path"
+            
+            # Проверяем, что это не символическая ссылка на скрипт
+            if [ -L "$winetricks_path" ]; then
+                echo "  Тип: символическая ссылка → $(readlink -f "$winetricks_path")"
+            elif [ -f "$winetricks_path" ]; then
+                echo "  Тип: обычный файл"
             fi
+            
+            return 0
         else
             echo -e "${RED}✗${NC}"
-            warning "Не удалось скачать winetricks"
+            warning "Winetricks установлен, но недоступен в PATH"
+            return 1
         fi
     else
-        success "Winetricks уже установлен"
+        echo -e "${RED}✗${NC}"
+        warning "Не удалось установить winetricks через dnf"
+        
+        # Пробуем альтернативный метод (из репозитория Fedora)
+        echo -n "  Пробуем альтернативный репозиторий... "
+        if dnf install -y winetricks --enablerepo=fedora 2>&1 | grep -q "Complete"; then
+            echo -e "${GREEN}✓${NC}"
+            return 0
+        else
+            echo -e "${RED}✗${NC}"
+            
+            # Последняя попытка - установка вручную
+            warning "Пробуем установить winetricks вручную..."
+            echo -n "  Скачивание из GitHub... "
+            if wget -q https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks -O /tmp/winetricks_new; then
+                echo -e "${GREEN}✓${NC}"
+                echo -n "  Установка... "
+                chmod +x /tmp/winetricks_new
+                mv /tmp/winetricks_new /usr/local/bin/winetricks
+                
+                if command -v winetricks >/dev/null 2>&1; then
+                    echo -e "${GREEN}✓${NC}"
+                    log "Версия (ручная): $(winetricks --version 2>/dev/null | head -1 || echo 'неизвестно')"
+                    return 0
+                else
+                    echo -e "${RED}✗${NC}"
+                    return 1
+                fi
+            else
+                echo -e "${RED}✗${NC}"
+                return 1
+            fi
+        fi
     fi
 }
 
@@ -132,6 +200,7 @@ install_fedora_deps() {
     done
     
     # Установка winetricks
+    echo ""
     install_winetricks
     
     # Финальная проверка
@@ -154,8 +223,15 @@ install_fedora_deps() {
     echo -n "  Winetricks... "
     if command -v winetricks >/dev/null 2>&1; then
         echo -e "${GREEN}✓${NC}"
+        
+        # Дополнительная информация о winetricks
+        local winetricks_info=$(winetricks --version 2>/dev/null | head -1)
+        if [ -n "$winetricks_info" ]; then
+            echo "    Версия: $winetricks_info"
+        fi
     else
         echo -e "${YELLOW}!${NC}"
+        warning "Winetricks не установлен или недоступен в PATH"
     fi
 }
 
@@ -206,6 +282,3 @@ install_dependencies() {
 
 # Обработка прерывания
 trap 'echo -e "\n${RED}Установка прервана${NC}"; exit 1' INT
-
-# Запуск
-install_dependencies
