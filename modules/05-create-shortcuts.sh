@@ -1,5 +1,5 @@
 #!/bin/bash
-# Создание ярлыков - исправленная версия (только установленные модули)
+# Создание ярлыков с иконками - исправленная версия
 
 set -e
 
@@ -11,13 +11,11 @@ PURPLE='\033[1;35m'
 CYAN='\033[1;36m'
 NC='\033[0m'
 
-# Функции вывода
 log() { echo -e "${BLUE}[INFO]${NC} $1"; }
 success() { echo -e "${GREEN}✓${NC} $1"; }
 warning() { echo -e "${YELLOW}!${NC} $1"; }
 error() { echo -e "${RED}✗${NC} $1"; }
 
-# Проверка окружения
 check_environment() {
     log "Проверка окружения..."
     
@@ -35,185 +33,158 @@ check_environment() {
     fi
     
     success "Параметры проверены"
-    log "Пользователь: $USER"
-    log "Домашняя директория: $HOME_DIR"
 }
 
-# Определение пути к рабочему столу
 get_desktop_path() {
-    log "Определение пути к рабочему столу..."
+    log "Определение рабочего стола..."
     
-    # Пробуем разные варианты
-    local desktop_paths=(
-        "$HOME_DIR/Рабочий стол"
-        "$HOME_DIR/Desktop" 
-        "$HOME_DIR/рабочий стол"
-        "$HOME_DIR/desktop"
-    )
-    
-    for path in "${desktop_paths[@]}"; do
-        if [ -d "$path" ]; then
-            DESKTOP_DIR="$path"
-            success "Найден рабочий стол: $DESKTOP_DIR"
-            return 0
-        fi
-    done
-    
-    # Если не нашли, создаем стандартный
     DESKTOP_DIR="$HOME_DIR/Рабочий стол"
-    mkdir -p "$DESKTOP_DIR"
-    chown "$USER:$USER" "$DESKTOP_DIR"
-    warning "Создан рабочий стол: $DESKTOP_DIR"
-}
-
-# Проверка инструментов для иконок
-check_icon_tools() {
-    log "Проверка инструментов для работы с иконками..."
-    
-    if command -v wrestool >/dev/null 2>&1 && command -v convert >/dev/null 2>&1; then
-        HAS_ICON_TOOLS=true
-        success "Инструменты для иконок доступны"
-    else
-        HAS_ICON_TOOLS=false
-        warning "Инструменты для иконок недоступны"
-        log "Установите: sudo dnf install icoutils ImageMagick"
+    if [ ! -d "$DESKTOP_DIR" ]; then
+        DESKTOP_DIR="$HOME_DIR/Desktop"
+        if [ ! -d "$DESKTOP_DIR" ]; then
+            DESKTOP_DIR="$HOME_DIR/Рабочий стол"
+            mkdir -p "$DESKTOP_DIR"
+            chown "$USER:$USER" "$DESKTOP_DIR"
+        fi
     fi
+    
+    success "Рабочий стол: $DESKTOP_DIR"
 }
 
-# Извлечение иконок из EXE файлов (только для установленных модулей)
+# Извлечение иконок из EXE файлов
 extract_icons() {
     local install_dir="$1"
     local icon_dir="$2"
     
-    if [ "$HAS_ICON_TOOLS" != true ]; then
-        return
-    fi
-    
     log "Извлечение иконок из EXE файлов..."
     
-    # Создаем директории для иконок
     mkdir -p "$icon_dir/64"
     mkdir -p "$icon_dir/32"
     mkdir -p "$icon_dir/16"
     
-    # Получаем список установленных модулей
-    local installed_modules=()
-    if [ -d "$install_dir" ]; then
-        for dir in "$install_dir"/*/; do
-            local module_name=$(basename "$dir")
-            # Исключаем служебные модули
-            if [[ "$module_name" != "Lib" && "$module_name" != "LibDRV" && "$module_name" != "LibLinux" ]]; then
-                installed_modules+=("$module_name")
-            fi
-        done
-    fi
-    
-    # Извлекаем иконки только для установленных модулей
-    for module_name in "${installed_modules[@]}"; do
-        local module_dir="$install_dir/$module_name"
-        
-        # Ищем EXE файл в папке модуля
-        local exe_file=$(find "$module_dir" -maxdepth 1 -name "*.exe" -type f | head -1)
-        
-        if [ -n "$exe_file" ]; then
-            echo -n "  $module_name... "
-            
-            # Извлекаем иконку
-            cd "$(dirname "$exe_file")"
-            if wrestool -x -o "/tmp/${module_name}_icon.ico" "$(basename "$exe_file")" 2>/dev/null; then
-                # Конвертируем в PNG
-                if convert "/tmp/${module_name}_icon.ico[0]" "$icon_dir/64/${module_name}.png" 2>/dev/null; then
-                    convert "$icon_dir/64/${module_name}.png" -resize 32x32 "$icon_dir/32/${module_name}.png" 2>/dev/null
-                    convert "$icon_dir/64/${module_name}.png" -resize 16x16 "$icon_dir/16/${module_name}.png" 2>/dev/null
-                    echo -e "${GREEN}✓${NC}"
-                else
-                    echo -e "${YELLOW}!${NC}"
-                fi
-                rm -f "/tmp/${module_name}_icon.ico"
-            else
-                echo -e "${YELLOW}!${NC}"
-            fi
-        fi
-    done
-    
-    # Устанавливаем права
-    chown -R "$USER:$USER" "$icon_dir" 2>/dev/null || true
-}
-
-# Получение пути к иконке
-get_icon_path() {
-    local module_name="$1"
-    local icon_dir="$2"
-    
-    if [ "$HAS_ICON_TOOLS" = true ] && [ -f "$icon_dir/32/${module_name}.png" ]; then
-        echo "$icon_dir/32/${module_name}.png"
-    elif [ -f "/usr/share/icons/gnome/32x32/apps/wine.png" ]; then
-        echo "/usr/share/icons/gnome/32x32/apps/wine.png"
-    else
-        echo "wine"
-    fi
-}
-
-# Создание ярлыков (только для установленных модулей)
-create_shortcuts() {
-    log "Создание ярлыков..."
-    
-    local install_dir="$HOME_DIR/.wine_medorg/drive_c/MedCTech/MedOrg"
-    local icon_dir="$HOME_DIR/.local/share/icons/medorg"
-    
-    # Создаем папку для ярлыков
-    local program_dir="$DESKTOP_DIR/Медицинские программы"
-    mkdir -p "$program_dir"
-    chown -R "$USER:$USER" "$program_dir"
-    
-    success "Папка для ярлыков создана: $program_dir"
-    
-    # Извлекаем иконки
-    extract_icons "$install_dir" "$icon_dir"
-    
-    # Проверяем наличие установленных модулей
     if [ ! -d "$install_dir" ]; then
-        warning "Директория с программами не найдена: $install_dir"
+        warning "Директория программ не найдена: $install_dir"
         return
     fi
     
-    # Получаем список установленных модулей (кроме служебных)
-    local installed_modules=()
-    for dir in "$install_dir"/*/; do
-        local module_name=$(basename "$dir")
-        # Исключаем служебные модули
-        if [[ "$module_name" != "Lib" && "$module_name" != "LibDRV" && "$module_name" != "LibLinux" ]]; then
-            installed_modules+=("$module_name")
-        fi
-    done
+    # Ищем все EXE файлы в установленных модулях
+    local exe_files=$(find "$install_dir" -name "*.exe" -type f 2>/dev/null)
     
-    if [ ${#installed_modules[@]} -eq 0 ]; then
-        warning "Нет установленных модулей (кроме служебных)"
+    if [ -z "$exe_files" ]; then
+        warning "EXE файлы не найдены"
         return
     fi
     
-    log "Найдены модули: ${installed_modules[*]}"
-    
-    # Создаем ярлыки для каждого установленного модуля
-    local created=0
-    for module_name in "${installed_modules[@]}"; do
-        local module_dir="$install_dir/$module_name"
+    echo "$exe_files" | while read -r exe_file; do
+        local module_dir=$(dirname "$exe_file")
+        local module_name=$(basename "$module_dir")
+        local exe_name=$(basename "$exe_file" .exe)
         
-        # Ищем EXE файл в папке модуля
-        local exe_file=$(find "$module_dir" -maxdepth 1 -name "*.exe" -type f | head -1)
-        
-        if [ -z "$exe_file" ]; then
-            warning "EXE файл не найден в модуле $module_name"
+        # Пропускаем если не папка модуля или это служебные модули
+        if [[ "$module_name" == "." ]] || [[ ! "$module_name" =~ ^[A-Z] ]] || \
+           [[ "$module_name" == "Lib" ]] || [[ "$module_name" == "LibDRV" ]] || [[ "$module_name" == "LibLinux" ]]; then
             continue
         fi
         
-        local exe_name=$(basename "$exe_file" .exe)
+        echo -n "  $module_name... "
         
-        # Получаем путь к иконке
-        local icon_path=$(get_icon_path "$module_name" "$icon_dir")
+        # Извлекаем иконку
+        cd "$module_dir" 2>/dev/null || continue
+        if wrestool -x -o "/tmp/${module_name}_icon.ico" "$exe_name.exe" 2>/dev/null; then
+            # Конвертируем в PNG
+            if convert "/tmp/${module_name}_icon.ico[0]" "$icon_dir/64/${module_name}.png" 2>/dev/null; then
+                convert "$icon_dir/64/${module_name}.png" -resize 32x32 "$icon_dir/32/${module_name}.png" 2>/dev/null
+                convert "$icon_dir/64/${module_name}.png" -resize 16x16 "$icon_dir/16/${module_name}.png" 2>/dev/null
+                echo -e "${GREEN}✓${NC}"
+            else
+                echo -e "${YELLOW}!${NC} (ошибка конвертации)"
+            fi
+            rm -f "/tmp/${module_name}_icon.ico" 2>/dev/null
+        else
+            echo -e "${YELLOW}!${NC} (иконка не извлечена)"
+        fi
+    done
+    
+    chown -R "$USER:$USER" "$icon_dir"
+}
+
+# Создание ярлыков для установленных модулей
+create_shortcuts() {
+    log "Создание ярлыков..."
+    
+    INSTALL_DIR="$HOME_DIR/.wine_medorg/drive_c/MedCTech/MedOrg"
+    ICON_DIR="$HOME_DIR/.local/share/icons/medorg"
+    
+    # Создаем папку для ярлыков
+    PROGRAM_DIR="$DESKTOP_DIR/Медицинские программы"
+    mkdir -p "$PROGRAM_DIR"
+    chown -R "$USER:$USER" "$PROGRAM_DIR"
+    
+    success "Папка создана: $PROGRAM_DIR"
+    
+    # Проверяем, есть ли установленные модули
+    if [ ! -d "$INSTALL_DIR" ]; then
+        warning "Директория с программами не найдена: $INSTALL_DIR"
+        
+        # Создаем инструкцию
+        cat > "$PROGRAM_DIR/ИНСТРУКЦИЯ.txt" << EOF
+Ярлыки не созданы, потому что файлы MedOrg не найдены.
+
+Для установки:
+1. Подключите сетевую папку:
+   sudo mount -t cifs //10.0.1.11/auto /mnt/medorg -o username=Администратор,password=Ybyjxrf30lh*
+
+2. Скопируйте файлы:
+   cp -r /mnt/medorg/Lib /mnt/medorg/LibDRV /mnt/medorg/LibLinux $INSTALL_DIR/
+
+3. Если выбраны дополнительные модули, скопируйте их:
+   cp -r /mnt/medorg/НАЗВАНИЕ_МОДУЛЯ $INSTALL_DIR/
+
+4. Перезапустите создание ярлыков:
+   ./Обновить_ярлыки.sh
+EOF
+        chown "$USER:$USER" "$PROGRAM_DIR/ИНСТРУКЦИЯ.txt"
+        return
+    fi
+    
+    # Извлекаем иконки
+    extract_icons "$INSTALL_DIR" "$ICON_DIR"
+    
+    # Создаем ярлыки для каждого модуля (кроме служебных)
+    local created=0
+    local all_modules=$(find "$INSTALL_DIR" -maxdepth 1 -type d -name "[A-Z]*" | sort)
+    
+    if [ -z "$all_modules" ]; then
+        warning "Модули не найдены в $INSTALL_DIR"
+        return
+    fi
+    
+    log "Поиск модулей для создания ярлыков..."
+    
+    echo "$all_modules" | while read -r module_dir; do
+        local module_name=$(basename "$module_dir")
+        
+        # Пропускаем служебные модули
+        if [[ "$module_name" == "Lib" ]] || [[ "$module_name" == "LibDRV" ]] || [[ "$module_name" == "LibLinux" ]]; then
+            continue
+        fi
+        
+        # Ищем EXE файл в модуле
+        local exe_file=$(find "$module_dir" -maxdepth 1 -name "*.exe" -type f | head -1)
+        
+        if [ -z "$exe_file" ]; then
+            warning "  $module_name: EXE файл не найден"
+            continue
+        fi
+        
+        # Путь к иконке
+        local icon_path="wine"
+        if [ -f "$ICON_DIR/32/${module_name}.png" ]; then
+            icon_path="$ICON_DIR/32/${module_name}.png"
+        fi
         
         # Создаем скрипт запуска
-        local script_path="$program_dir/$module_name.sh"
+        local script_path="$PROGRAM_DIR/$module_name.sh"
         
         cat > "$script_path" << EOF
 #!/bin/bash
@@ -229,8 +200,8 @@ EOF
         chmod +x "$script_path"
         chown "$USER:$USER" "$script_path"
         
-        # Создаем .desktop файл
-        local desktop_file="$program_dir/$module_name.desktop"
+        # Создаем desktop файл
+        local desktop_file="$PROGRAM_DIR/$module_name.desktop"
         
         cat > "$desktop_file" << EOF
 [Desktop Entry]
@@ -242,20 +213,28 @@ Exec=$script_path
 Icon=$icon_path
 Terminal=false
 Categories=Medical;
-StartupWMClass=$exe_name.exe
 EOF
         
         chmod +x "$desktop_file"
         chown "$USER:$USER" "$desktop_file"
         
-        created=$((created + 1))
         echo -e "  ${GREEN}✓${NC} $module_name"
+        created=$((created + 1))
     done
     
     if [ $created -gt 0 ]; then
         success "Создано ярлыков: $created"
+        
+        # Создаем файл со списком модулей
+        cat > "$PROGRAM_DIR/СПИСОК_МОДУЛЕЙ.txt" << EOF
+Установленные модули:
+$(find "$INSTALL_DIR" -maxdepth 1 -type d -name "[A-Z]*" | xargs -I {} basename {} | grep -vE '^(Lib|LibDRV|LibLinux)$' | sort)
+
+Общее количество: $created
+EOF
+        chown "$USER:$USER" "$PROGRAM_DIR/СПИСОК_МОДУЛЕЙ.txt"
     else
-        warning "Не удалось создать ярлыки"
+        warning "Ярлыки не созданы (модули не найдены)"
     fi
 }
 
@@ -263,96 +242,96 @@ EOF
 create_helper_scripts() {
     log "Создание вспомогательных скриптов..."
     
-    local script_dir="$HOME_DIR"
-    
-    # Скрипт исправления прав
-    cat > "$script_dir/Исправить_права.sh" << EOF
-#!/bin/bash
-echo "Исправление прав доступа..."
-chown -R $USER:$USER ~/.wine_medorg
-chmod -R 755 ~/.wine_medorg
-echo "Готово!"
-EOF
-    
-    chmod +x "$script_dir/Исправить_права.sh"
-    chown "$USER:$USER" "$script_dir/Исправить_права.sh"
-    
     # Скрипт обновления ярлыков
-    cat > "$script_dir/Обновить_ярлыки.sh" << EOF
+    cat > "$HOME_DIR/Обновить_ярлыки.sh" << EOF
 #!/bin/bash
-echo "Обновление ярлыков медицинских программ..."
+echo "=== ОБНОВЛЕНИЕ ЯРЛЫКОВ МЕДИЦИНСКИХ ПРОГРАММ ==="
 echo ""
 
-# Удаляем старую папку с ярлыками
+# Удаляем старые ярлыки
+echo "Удаление старых ярлыков..."
 rm -rf "\$HOME/Рабочий стол/Медицинские программы" 2>/dev/null
 rm -rf "\$HOME/Desktop/Медицинские программы" 2>/dev/null
 
-# Запускаем создание ярлыков
-if [ -f "/tmp/medorg_create_shortcuts.sh" ]; then
-    bash /tmp/medorg_create_shortcuts.sh
+echo "Создание новых ярлыков..."
+# Запускаем модуль создания ярлыков
+bash <(curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/05-create-shortcuts.sh?cache=\$(date +%s)")
+
+echo ""
+echo "Готово! Проверьте папку 'Медицинские программы' на рабочем столе."
+EOF
+    
+    chmod +x "$HOME_DIR/Обновить_ярлыки.sh"
+    chown "$USER:$USER" "$HOME_DIR/Обновить_ярлыки.sh"
+    
+    # Скрипт проверки установленных модулей
+    cat > "$HOME_DIR/Проверить_модули.sh" << EOF
+#!/bin/bash
+echo "=== ПРОВЕРКА УСТАНОВЛЕННЫХ МОДУЛЕЙ ==="
+echo ""
+
+INSTALL_DIR="\$HOME/.wine_medorg/drive_c/MedCTech/MedOrg"
+
+if [ -d "\$INSTALL_DIR" ]; then
+    echo "Установленные модули в \$INSTALL_DIR/:"
+    echo "-------------------------------------"
+    find "\$INSTALL_DIR" -maxdepth 1 -type d -name "[A-Z]*" | xargs -I {} basename {} | sort | column -c 80
+    
+    echo ""
+    echo "Обязательные модули:"
+    for module in Lib LibDRV LibLinux; do
+        if [ -d "\$INSTALL_DIR/\$module" ]; then
+            echo "  ✓ \$module"
+        else
+            echo "  ✗ \$module (ОТСУТСТВУЕТ!)"
+        fi
+    done
+    
+    echo ""
+    echo "Дополнительные модули:"
+    find "\$INSTALL_DIR" -maxdepth 1 -type d -name "[A-Z]*" | xargs -I {} basename {} | grep -vE '^(Lib|LibDRV|LibLinux)$' | while read module; do
+        echo "  ✓ \$module"
+    done
 else
-    echo "Ошибка: скрипт создания ярлыков не найден"
-    echo "Переустановите программы: curl -sSL https://raw.githubusercontent.com/kubinets/medorg-installer/main/install.sh | sudo bash"
+    echo "Ошибка: директория \$INSTALL_DIR не найдена"
 fi
 EOF
     
-    chmod +x "$script_dir/Обновить_ярлыки.sh"
-    chown "$USER:$USER" "$script_dir/Обновить_ярлыки.sh"
+    chmod +x "$HOME_DIR/Проверить_модули.sh"
+    chown "$USER:$USER" "$HOME_DIR/Проверить_модули.sh"
     
     success "Вспомогательные скрипты созданы"
 }
 
-# Основная функция
 main() {
     echo ""
-    echo -e "${CYAN}СОЗДАНИЕ ЯРЛЫКОВ И СКРИПТОВ${NC}"
+    echo -e "${CYAN}СОЗДАНИЕ ЯРЛЫКОВ ДЛЯ МЕДИЦИНСКИХ ПРОГРАММ${NC}"
     echo ""
     
-    # Проверка окружения
     check_environment
-    
-    # Определение рабочего стола
     get_desktop_path
-    
-    # Проверка инструментов для иконок
-    check_icon_tools
-    
-    # Создание ярлыков (только для установленных модулей)
     create_shortcuts
-    
-    # Создание вспомогательных скриптов
     create_helper_scripts
     
-    # Итог
     echo ""
     echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║      ЯРЛЫКИ УСПЕШНО СОЗДАНЫ!                   ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
     echo ""
     
-    echo -e "${CYAN}Расположение:${NC}"
-    echo -e "${BLUE}─────────────${NC}"
-    echo -e "  ${GREEN}•${NC} Папка с ярлыками: ${YELLOW}$DESKTOP_DIR/Медицинские программы/${NC}"
-    echo -e "  ${GREEN}•${NC} Иконки программ: ${YELLOW}$HOME_DIR/.local/share/icons/medorg/${NC}"
-    echo -e "  ${GREEN}•${NC} Исходные программы: ${YELLOW}$HOME_DIR/.wine_medorg/drive_c/MedCTech/MedOrg/${NC}"
+    echo -e "${CYAN}Создано:${NC}"
+    echo -e "${BLUE}────────${NC}"
+    echo -e "  ${GREEN}•${NC} Папка: ${YELLOW}$DESKTOP_DIR/Медицинские программы/${NC}"
+    echo -e "  ${GREEN}•${NC} Вспомогательные скрипты:"
+    echo -e "      ${YELLOW}•${NC} Обновить_ярлыки.sh"
+    echo -e "      ${YELLOW}•${NC} Проверить_модули.sh"
     echo ""
     
-    echo -e "${CYAN}Вспомогательные скрипты:${NC}"
-    echo -e "${BLUE}───────────────────────${NC}"
-    echo -e "  ${GREEN}•${NC} Исправить_права.sh - исправление прав доступа"
-    echo -e "  ${GREEN}•${NC} Обновить_ярлыки.sh - повторное создание ярлыков"
-    echo ""
-    
-    echo -e "${CYAN}Для запуска:${NC}"
-    echo -e "${BLUE}────────────${NC}"
-    echo "1. Войдите как пользователь: $USER"
-    echo "2. На рабочем столе откройте папку 'Медицинские программы'"
-    echo "3. Запускайте программы двойным кликом по ярлыкам"
+    echo -e "${CYAN}Для обновления ярлыков выполните:${NC}"
+    echo -e "${BLUE}────────────────────────────────${NC}"
+    echo -e "  ${YELLOW}./Обновить_ярлыки.sh${NC}"
     echo ""
 }
 
-# Обработка прерывания
-trap 'echo -e "\n${RED}Создание ярлыков прервано${NC}"; exit 1' INT
-
-# Запуск
+trap 'echo -e "\n${RED}Прервано${NC}"; exit 1' INT
 main "$@"
