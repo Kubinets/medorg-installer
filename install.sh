@@ -357,83 +357,74 @@ select_modules() {
     done
 }
 
-# Запуск модулей (ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ)
+# Запуск модулей (ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ ДЛЯ ВСЕХ СКРИПТОВ)
 run_modules() {
     print_section "НАЧАЛО УСТАНОВКИ"
     log "Начинаем установку..."
     
-    # Создаем временную директорию для модулей
-    local temp_dir="/tmp/medorg_install_$$"
-    mkdir -p "$temp_dir"
-    
-    # Сохраняем переменные в файл для передачи в дочерние скрипты
-    local env_file="$temp_dir/install_env.sh"
-    
-    cat > "$env_file" << EOF
+    # Создаем функцию для запуска модулей с переменными
+    run_module_with_env() {
+        local module_url="$1"
+        local module_name="$2"
+        
+        log "Запуск модуля: $module_name..."
+        
+        # Скачиваем скрипт
+        local module_content=$(curl -s "$module_url")
+        
+        # Создаем временный скрипт с правильными переменными
+        local temp_script="/tmp/module_$$.sh"
+        
+        cat > "$temp_script" << EOF
+#!/bin/bash
+# Загружаем переменные окружения
 export TARGET_USER="$USER"
 export TARGET_HOME="$HOME_DIR"
 export SELECTED_MODULES="$SELECTED_MODULES"
 export SELECTED_MODULES_LIST="${SELECTED_MODULES[*]}"
 export INPUT_METHOD="$INPUT_METHOD"
 export AUTO_MODE="$AUTO_MODE"
-EOF
-    
-    # Модуль 1: Зависимости
-    log "Установка зависимостей..."
-    if ! bash <(curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/01-dependencies.sh?cache=$(date +%s)"); then
-        warning "Модуль зависимостей завершился с ошибками, продолжаем..."
-    fi
-    
-    # Модуль 2: Настройка Wine
-    log "Настройка Wine..."
-    if ! bash <(curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/02-wine-setup.sh?cache=$(date +%s)"); then
-        warning "Модуль Wine завершился с ошибками, продолжаем..."
-    fi
-    
-    # Модуль 3: Копирование файлов - ГЛАВНЫЙ ФИКС
-    log "Копирование программы..."
-    
-    # Скачиваем скрипт копирования
-    local copy_script_url="https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/03-copy-files.sh?cache=$(date +%s)"
-    local copy_script_content=$(curl -s "$copy_script_url")
-    
-    # Создаем временный скрипт с правильными переменными
-    cat > /tmp/copy_fixed_$$.sh << EOF
-#!/bin/bash
-# Загружаем переменные окружения
-source "$env_file"
-
-# Экспортируем обязательные переменные
 export REQUIRED="Lib LibDRV LibLinux"
 export ALL_MODULES="Admin BolList DayStac Dispanser DopDisp Econ EconRA EconRost Fluoro Kiosk KTFOMSAgentDisp KTFOMSAgentGosp KTFOMSAgentPolis KTFOMSAgentReg KubNaprAgent MainSestStac MedOsm MISAgent OtdelStac Pokoy RegPeople RegPol San SanDoc SpravkaOMS StatPol StatStac StatYear Tablo Talon Vedom VistaAgent WrachPol"
 
-$copy_script_content
+$module_content
 EOF
+        
+        chmod +x "$temp_script"
+        
+        # Запускаем скрипт
+        if ! bash "$temp_script"; then
+            warning "Модуль $module_name завершился с ошибками, продолжаем..."
+        fi
+        
+        # Удаляем временный скрипт
+        rm -f "$temp_script"
+    }
     
-    chmod +x /tmp/copy_fixed_$$.sh
+    # Модуль 1: Зависимости
+    run_module_with_env \
+        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/01-dependencies.sh?cache=$(date +%s)" \
+        "зависимости"
     
-    # Запускаем с правильными переменными
-    if ! bash /tmp/copy_fixed_$$.sh; then
-        warning "Модуль копирования завершился с ошибками, продолжаем..."
-    fi
+    # Модуль 2: Настройка Wine
+    run_module_with_env \
+        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/02-wine-setup.sh?cache=$(date +%s)" \
+        "Wine"
     
-    # Удаляем временный скрипт
-    rm -f /tmp/copy_fixed_$$.sh
+    # Модуль 3: Копирование файлов
+    run_module_with_env \
+        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/03-copy-files.sh?cache=$(date +%s)" \
+        "копирование"
     
     # Модуль 4: Исправление midas.dll
-    log "Исправление midas.dll..."
-    if ! bash <(curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/04-fix-midas.sh?cache=$(date +%s)"); then
-        warning "Модуль midas.dll завершился с ошибками, продолжаем..."
-    fi
+    run_module_with_env \
+        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/04-fix-midas.sh?cache=$(date +%s)" \
+        "midas.dll"
     
     # Модуль 5: Создание ярлыков
-    log "Создание ярлыков..."
-    if ! bash <(curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/05-create-shortcuts.sh?cache=$(date +%s)"); then
-        warning "Модуль ярлыков завершился с ошибками, продолжаем..."
-    fi
-    
-    # Удаляем временные файлы
-    rm -rf "$temp_dir"
+    run_module_with_env \
+        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/05-create-shortcuts.sh?cache=$(date +%s)" \
+        "ярлыки"
     
     # Создаем финальный фикс-скрипт
     create_final_script
