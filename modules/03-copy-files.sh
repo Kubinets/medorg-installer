@@ -258,4 +258,3 @@ trap 'echo -e "\n${RED}Копирование прервано${NC}";
 
 # Запуск
 main "$@"
-[file content end]

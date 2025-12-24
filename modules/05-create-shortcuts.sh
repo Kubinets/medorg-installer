@@ -1,5 +1,3 @@
-[file name]: 05-create-shortcuts.sh
-[file content begin]
 #!/bin/bash
 # Создание ярлыков - улучшенная версия с извлечением иконок
 
@@ -409,4 +407,3 @@ trap 'echo -e "\n${RED}Создание ярлыков прервано${NC}"; e
 
 # Запуск
 main "$@"
-[file content end]

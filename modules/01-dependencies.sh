@@ -282,3 +282,6 @@ install_dependencies() {
 
 # Обработка прерывания
 trap 'echo -e "\n${RED}Установка прервана${NC}"; exit 1' INT
+
+# Запуск
+main "$@"
