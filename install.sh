@@ -1,5 +1,5 @@
 #!/bin/bash
-# MedOrg Installer v3.3 - FIXED для пайпа
+# MedOrg Installer v3.4 - ПОЛНОСТЬЮ ИСПРАВЛЕННЫЙ
 # by kubinets - https://github.com/kubinets
 
 set -e
@@ -29,12 +29,9 @@ USER=""
 HOME_DIR=""
 
 # ========== ФИКС ДЛЯ ПАЙПА ==========
-# Проверяем, запущен ли скрипт через пайп
 if [[ -t 0 ]]; then
-    # Интерактивный режим - используем обычный ввод
     INPUT_METHOD="tty"
 else
-    # Неинтерактивный режим (пайп) - используем аргументы
     INPUT_METHOD="args"
     echo -e "${YELLOW}ВНИМАНИЕ: Скрипт запущен через пайп.${NC}"
     echo -e "${YELLOW}Используйте аргументы командной строки:${NC}"
@@ -98,7 +95,7 @@ show_header() {
     echo ""
     
     echo -e "${GREEN}"
-    typewriter "                     SYSTEM INSTALLER v3.3" 0.03
+    typewriter "                     SYSTEM INSTALLER v3.4" 0.03
     echo ""
     typewriter "                    https://github.com/kubinets" 0.03
     echo ""
@@ -357,9 +354,9 @@ select_modules() {
     done
 }
 
-# Запуск модулей (ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ ДЛЯ ВСЕХ СКРИПТОВ)
+# Запуск модулей (ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ)
 run_modules() {
-        print_section "НАЧАЛО УСТАНОВКИ"
+    print_section "НАЧАЛО УСТАНОВКИ"
     log "Начинаем установку..."
     
     # Функция для запуска модулей с переменными окружения
