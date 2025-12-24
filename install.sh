@@ -354,74 +354,72 @@ select_modules() {
     done
 }
 
-# Запуск модулей (ПОЛНОСТЬЮ ИСПРАВЛЕННАЯ ВЕРСИЯ)
+# Запуск модулей (ПОЛНОСТЬЮ ПЕРЕПИСАННАЯ ВЕРСИЯ)
 run_modules() {
     print_section "НАЧАЛО УСТАНОВКИ"
     log "Начинаем установку..."
     
-    # Функция для запуска модулей с переменными окружения
-    run_module() {
-        local module_url="$1"
-        local module_name="$2"
-        
-        log "Запуск модуля: $module_name..."
-        
-        # Создаем временный скрипт со всеми необходимыми переменными
-        local temp_script="/tmp/medorg_module_$$.sh"
-        
-        # Экспортируем переменные и вызываем модуль
-        cat > "$temp_script" << EOF
-#!/bin/bash
-export TARGET_USER="$USER"
-export TARGET_HOME="$HOME_DIR"
-export SELECTED_MODULES="${SELECTED_MODULES[*]}"
-export INPUT_METHOD="$INPUT_METHOD"
-export AUTO_MODE="$AUTO_MODE"
-
-# Загружаем модуль
-$(curl -s "$module_url")
-EOF
-        
-        chmod +x "$temp_script"
-        
-        # Запускаем скрипт
-        if ! bash "$temp_script"; then
-            warning "Модуль $module_name завершился с ошибками, продолжаем..."
-        fi
-        
-        # Удаляем временный скрипт
-        rm -f "$temp_script"
-    }
+    # Загружаем и выполняем модули по очереди
+    log "Загрузка модулей..."
     
-    # Модуль 1: Зависимости
-    echo "=== Модуль 1: Установка зависимостей ==="
-    run_module \
-        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/01-dependencies.sh?cache=\$(date +%s)" \
-        "зависимости"
+    # 1. Модуль зависимостей
+    echo "=== МОДУЛЬ 1: УСТАНОВКА ЗАВИСИМОСТЕЙ ==="
+    if curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/01-dependencies.sh" | bash; then
+        success "Модуль зависимостей выполнен"
+    else
+        warning "Модуль зависимостей завершился с ошибками"
+    fi
     
-    # Модуль 2: Настройка Wine
-    echo "=== Модуль 2: Настройка Wine ==="
-    run_module \
-        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/02-wine-setup.sh?cache=\$(date +%s)" \
-        "Wine"
+    # 2. Модуль Wine
+    echo ""
+    echo "=== МОДУЛЬ 2: НАСТРОЙКА WINE ==="
+    echo "Устанавливаем переменные: TARGET_USER=$USER, TARGET_HOME=$HOME_DIR"
+    export TARGET_USER="$USER"
+    export TARGET_HOME="$HOME_DIR"
     
-    # Модуль 3: Копирование файлов
-    echo "=== Модуль 3: Копирование файлов ==="
-    run_module \
-        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/03-copy-files.sh?cache=\$(date +%s)" \
-        "копирование"
+    if curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/02-wine-setup.sh" | bash; then
+        success "Модуль Wine выполнен"
+    else
+        warning "Модуль Wine завершился с ошибками"
+    fi
     
-    # Модуль 4: Исправление midas.dll
-    echo "=== Модуль 4: Исправление midas.dll ==="
-    run_module \
-        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/04-fix-midas.sh?cache=\$(date +%s)" \
-        "midas.dll"
+    # 3. Модуль копирования файлов
+    echo ""
+    echo "=== МОДУЛЬ 3: КОПИРОВАНИЕ ФАЙЛОВ ==="
+    echo "Выбранные модули: ${SELECTED_MODULES[*]}"
+    export TARGET_USER="$USER"
+    export TARGET_HOME="$HOME_DIR"
+    export SELECTED_MODULES="${SELECTED_MODULES[*]}"
     
-    # Модуль 5: Создание ярлыков
-    echo "=== Модуль 5: Создание ярлыков ==="
-    run_module \
-        "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/05-create-shortcuts.sh?cache=\$(date +%s)" \
-        "ярлыки"
+    if curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/03-copy-files.sh" | bash; then
+        success "Модуль копирования выполнен"
+    else
+        warning "Модуль копирования завершился с ошибками"
+    fi
+    
+    # 4. Модуль midas.dll
+    echo ""
+    echo "=== МОДУЛЬ 4: ИСПРАВЛЕНИЕ MIDAS.DLL ==="
+    export TARGET_USER="$USER"
+    export TARGET_HOME="$HOME_DIR"
+    
+    if curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/04-fix-midas.sh" | bash; then
+        success "Модуль midas.dll выполнен"
+    else
+        warning "Модуль midas.dll завершился с ошибками"
+    fi
+    
+    # 5. Модуль создания ярлыков
+    echo ""
+    echo "=== МОДУЛЬ 5: СОЗДАНИЕ ЯРЛЫКОВ ==="
+    export TARGET_USER="$USER"
+    export TARGET_HOME="$HOME_DIR"
+    
+    if curl -s "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/05-create-shortcuts.sh" | bash; then
+        success "Модуль ярлыков выполнен"
+    else
+        warning "Модуль ярлыков завершился с ошибками"
+    fi
     
     # Создаем финальный фикс-скрипт
     create_final_script
