@@ -256,123 +256,52 @@ select_user() {
 select_modules() {
     if [[ "$AUTO_MODE" == true ]]; then
         SELECTED_MODULES=()
-        log "Автоматический режим: установка только обязательных модулей"
         return
     fi
     
-    # Если модули уже выбраны через аргументы
     if [[ ${#SELECTED_MODULES[@]} -gt 0 ]]; then
-        log "Модули выбраны через аргументы: ${SELECTED_MODULES[*]}"
         return
     fi
     
     print_section "ВЫБОР МОДУЛЕЙ"
     
-    echo "Обязательные модули:"
-    echo -e "${GREEN}$(printf '  • %s\n' "${REQUIRED[@]}")${NC}"
+    # Показываем список
+    echo "Выберите дополнительные модули (или нажмите Enter для пропуска):"
     echo ""
     
-    echo "Дополнительные модули:"
-    for i in "${!ALL_MODULES[@]}"; do
-        printf "${CYAN}%2d.${NC} %-20s" $((i+1)) "${ALL_MODULES[i]}"
-        if [ $(((i+1) % 3)) -eq 0 ] || [ $((i+1)) -eq ${#ALL_MODULES[@]} ]; then
-            echo ""
-        fi
-    done
+    # Пробуем получить ввод любым способом
+    local input=""
     
-    echo ""
-    echo -e "${YELLOW}  a. Все модули${NC}"
-    echo -e "${YELLOW}  n. Только обязательные${NC}"
-    echo ""
-    
-    # ========== КЛЮЧЕВОЕ ИСПРАВЛЕНИЕ ==========
-    # Вместо пропуска выбора в режиме пайпа, даем возможность ввести
-    # Если stdin не терминал, перенаправляем ввод с /dev/tty
-    
-    local original_stdin="/proc/self/fd/0"
-    
-    # Проверяем, можем ли мы читать с терминала
-    if [[ ! -t 0 ]]; then
-        log "Обнаружен режим пайпа. Пытаемся использовать терминал для ввода..."
-        
-        # Пробуем открыть терминал для ввода
-        if [[ -t 1 ]] && [[ -c /dev/tty ]]; then
-            log "Используем /dev/tty для интерактивного ввода"
-            exec < /dev/tty
-        else
-            warning "Не удалось получить интерактивный ввод"
-            log "Используем только обязательные модули"
-            SELECTED_MODULES=()
-            echo ""
-            echo "Для выбора модулей используйте аргумент --modules при запуске:"
-            echo "  curl ... | sudo bash -- --user god --modules WrachPol,Admin"
-            echo ""
-            return
-        fi
+    # Способ 1: Через /dev/tty
+    if [[ -c /dev/tty ]]; then
+        read -t 30 -p "Введите номера модулей (через пробел): " input </dev/tty 2>/dev/null || true
+    # Способ 2: Через оригинальный stdin
+    elif [[ -t 0 ]]; then
+        read -t 30 -p "Введите номера модулей (через пробел): " input 2>/dev/null || true
     fi
     
-    # ========== ИНТЕРАКТИВНЫЙ ВВОД ==========
-    echo -ne "${GREEN}Выберите модули${NC}"
-    echo -ne "${BLUE} (номера через пробел, 'a' или 'n')${NC}"
-    echo -ne "${YELLOW}: ${NC}"
-    
-    # Читаем ввод с таймаутом 30 секунд
-    if read -t 30 choices; then
+    # Обработка ввода
+    if [[ -z "$input" ]]; then
         SELECTED_MODULES=()
-        
-        case "$choices" in
-            a|A)
-                SELECTED_MODULES=("${ALL_MODULES[@]}")
-                echo ""
-                echo "Выбраны ВСЕ модули"
-                ;;
-            n|N|"")
-                SELECTED_MODULES=()
-                echo ""
-                echo "Только обязательные модули"
-                ;;
-            *)
-                IFS=' ' read -ra nums <<< "$choices"
-                valid=true
-                
-                for num in "${nums[@]}"; do
-                    if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le ${#ALL_MODULES[@]} ]; then
-                        SELECTED_MODULES+=("${ALL_MODULES[$((num-1))]}")
-                    else
-                        warning "Неверный номер: $num"
-                        valid=false
-                    fi
-                done
-                
-                if [ "$valid" = true ] && [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
-                    SELECTED_MODULES=($(echo "${SELECTED_MODULES[@]}" | tr ' ' '\n' | sort -u))
-                    echo ""
-                    echo "Выбраны модули: ${SELECTED_MODULES[*]}"
-                else
-                    warning "Неверный ввод! Используем только обязательные модули"
-                    SELECTED_MODULES=()
-                fi
-                ;;
-        esac
+        echo "Дополнительные модули не выбраны"
+    elif [[ "$input" == "a" ]] || [[ "$input" == "A" ]]; then
+        SELECTED_MODULES=("${ALL_MODULES[@]}")
+        echo "Выбраны все модули"
     else
-        echo ""
-        warning "Таймаут ввода (30 секунд). Используем только обязательные модули."
-        SELECTED_MODULES=()
-    fi
-    
-    # Восстанавливаем оригинальный stdin если нужно
-    if [[ ! -t 0 ]] && [[ -e "$original_stdin" ]]; then
-        exec < "$original_stdin"
-    fi
-    
-    echo ""
-    if [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
-        success "Выбраны модули:"
-        for module in "${SELECTED_MODULES[@]}"; do
-            echo -e "  ${GREEN}•${NC} $module"
+        IFS=' ' read -ra nums <<< "$input"
+        for num in "${nums[@]}"; do
+            if [[ "$num" =~ ^[0-9]+$ ]] && [ "$num" -ge 1 ] && [ "$num" -le ${#ALL_MODULES[@]} ]; then
+                SELECTED_MODULES+=("${ALL_MODULES[$((num-1))]}")
+            fi
         done
-    else
-        log "Дополнительные модули не выбраны"
+        
+        if [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
+            SELECTED_MODULES=($(printf "%s\n" "${SELECTED_MODULES[@]}" | sort -u))
+            echo "Выбраны: ${SELECTED_MODULES[*]}"
+        else
+            SELECTED_MODULES=()
+            echo "Неверный ввод. Дополнительные модули не выбраны"
+        fi
     fi
 }
 
