@@ -359,13 +359,24 @@ select_modules() {
 
 # Запуск модулей
 run_modules() {
-    print_section "НАЧАЛО УСТАНОВКИ"
+     print_section "НАЧАЛО УСТАНОВКИ"
     log "Начинаем установку..."
     
     # Экспортируем переменные для дочерних скриптов
     export TARGET_USER="$USER"
     export TARGET_HOME="$HOME_DIR"
-    export SELECTED_MODULES
+    
+    # ФИКС: Правильно передаем SELECTED_MODULES как строку
+    if [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
+        # Преобразуем массив в строку для передачи
+        SELECTED_MODULES_STR=$(printf "%s " "${SELECTED_MODULES[@]}")
+        export SELECTED_MODULES="$SELECTED_MODULES_STR"
+        log "Выбранные модули для копирования: $SELECTED_MODULES_STR"
+    else
+        export SELECTED_MODULES=""
+        log "Пользователь не выбрал дополнительные модули"
+    fi
+    
     export REQUIRED
     export ALL_MODULES
     export INPUT_METHOD

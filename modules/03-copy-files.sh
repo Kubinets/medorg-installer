@@ -77,22 +77,39 @@ mount_network_share() {
             return 0
         else
             error "Не удалось подключиться к сетевой папке"
-            log "Пробуем без пароля..."
-            
-            # Пробуем без пароля
-            local no_pass_options="username=$username,uid=$(id -u "$USER")"
-            if mount -t cifs "$server" "$mount_point" -o "$no_pass_options" 2>&1; then
-                success "Сетевая папка подключена без пароля"
-                return 0
-            else
-                error "Все попытки подключения не удались"
-                return 1
-            fi
+            return 1
         fi
     fi
 }
 
-# Копирование файлов (ТОЛЬКО ВЫБРАННЫЕ МОДУЛИ) - ИСПРАВЛЕННАЯ ВЕРСИЯ
+# Функция для парсинга SELECTED_MODULES
+parse_selected_modules() {
+    local modules_array=()
+    
+    # Если переменная пустая
+    if [ -z "$SELECTED_MODULES" ]; then
+        echo "${modules_array[@]}"
+        return
+    fi
+    
+    # Пробуем разные форматы
+    # Формат 1: Массив как строка "(module1 module2)"
+    if [[ "$SELECTED_MODULES" =~ ^\(.*\)$ ]]; then
+        # Удаляем скобки
+        local modules_str=$(echo "$SELECTED_MODULES" | sed 's/^(\(.*\))$/\1/')
+        IFS=' ' read -ra modules_array <<< "$modules_str"
+    # Формат 2: Простая строка "module1 module2"
+    elif [[ "$SELECTED_MODULES" =~ [[:space:]] ]]; then
+        IFS=' ' read -ra modules_array <<< "$SELECTED_MODULES"
+    # Формат 3: Один модуль
+    else
+        modules_array=("$SELECTED_MODULES")
+    fi
+    
+    echo "${modules_array[@]}"
+}
+
+# Копирование файлов (ТОЛЬКО ВЫБРАННЫЕ МОДУЛИ)
 copy_files() {
     local mount_point="/tmp/medorg_mount_$$"
     
@@ -111,65 +128,89 @@ copy_files() {
         # Обязательные модули (всегда копируем)
         local required_modules=("Lib" "LibDRV" "LibLinux")
         
-        # Получаем выбранные модули из переменной SELECTED_MODULES
-        # SELECTED_MODULES передается как массив из главного скрипта
-        local selected_modules=()
+        # Получаем выбранные модули
+        local selected_modules=($(parse_selected_modules))
         
-        # Логируем что получили
-        log "Полученные модули из SELECTED_MODULES:"
-        if [ -n "${SELECTED_MODULES[*]}" ]; then
-            # Если массив не пустой
-            for module in "${SELECTED_MODULES[@]}"; do
+        log "Модули для копирования:"
+        echo ""
+        echo -e "${GREEN}Обязательные (всегда):${NC}"
+        for module in "${required_modules[@]}"; do
+            echo -e "  ${GREEN}•${NC} $module"
+        done
+        
+        echo ""
+        if [ ${#selected_modules[@]} -gt 0 ]; then
+            echo -e "${CYAN}Выбранные пользователем:${NC}"
+            for module in "${selected_modules[@]}"; do
                 echo -e "  ${CYAN}•${NC} $module"
-                selected_modules+=("$module")
             done
         else
-            log "  ${YELLOW}Дополнительные модули не выбраны${NC}"
+            echo -e "${YELLOW}Дополнительные модули не выбраны${NC}"
         fi
         
         echo ""
         
         # Копируем обязательные модули
-        log "Копирование обязательных модулей:"
+        log "Копирование обязательных модулей..."
+        local copied_required=0
         for module in "${required_modules[@]}"; do
             echo -n "  $module... "
             if [ -d "$mount_point/$module" ]; then
-                cp -r "$mount_point/$module" "$TARGET_DIR/" 2>/dev/null && \
-                echo -e "${GREEN}✓${NC}" || \
-                echo -e "${YELLOW}!${NC} (ошибка копирования)"
+                cp -r "$mount_point/$module" "$TARGET_DIR/" 2>/dev/null
+                if [ $? -eq 0 ]; then
+                    echo -e "${GREEN}✓${NC}"
+                    copied_required=$((copied_required + 1))
+                else
+                    echo -e "${RED}✗${NC} (ошибка копирования)"
+                fi
             else
                 echo -e "${RED}✗${NC} (не найден в сетевой папке)"
             fi
         done
         
-        # Копируем выбранные модули (если есть)
+        # Копируем выбранные модули
         if [ ${#selected_modules[@]} -gt 0 ]; then
-            echo ""
-            log "Копирование выбранных модулей:"
+            log "Копирование выбранных модулей..."
+            local copied_selected=0
             for module in "${selected_modules[@]}"; do
                 echo -n "  $module... "
                 if [ -d "$mount_point/$module" ]; then
-                    cp -r "$mount_point/$module" "$TARGET_DIR/" 2>/dev/null && \
-                    echo -e "${GREEN}✓${NC}" || \
-                    echo -e "${YELLOW}!${NC} (ошибка копирования)"
+                    cp -r "$mount_point/$module" "$TARGET_DIR/" 2>/dev/null
+                    if [ $? -eq 0 ]; then
+                        echo -e "${GREEN}✓${NC}"
+                        copied_selected=$((copied_selected + 1))
+                    else
+                        echo -e "${RED}✗${NC} (ошибка копирования)"
+                    fi
                 else
                     echo -e "${RED}✗${NC} (не найден в сетевой папке)"
                 fi
             done
-        else
-            log "Дополнительные модули не выбраны пользователем"
         fi
         
         # Устанавливаем права
-        chown -R "$USER:$USER" "$TARGET_DIR"/*
+        chown -R "$USER:$USER" "$TARGET_DIR" 2>/dev/null
         
-        success "Файлы скопированы"
+        # Итог копирования
+        echo ""
+        if [ $copied_required -eq ${#required_modules[@]} ]; then
+            success "Обязательные модули скопированы: $copied_required/${#required_modules[@]}"
+        else
+            warning "Скопированы не все обязательные модули: $copied_required/${#required_modules[@]}"
+        fi
+        
+        if [ ${#selected_modules[@]} -gt 0 ]; then
+            if [ $copied_selected -eq ${#selected_modules[@]} ]; then
+                success "Выбранные модули скопированы: $copied_selected/${#selected_modules[@]}"
+            else
+                warning "Скопированы не все выбранные модули: $copied_selected/${#selected_modules[@]}"
+            fi
+        fi
         
         # Показываем что скопировалось
-        echo ""
-        log "Скопированные модули в $TARGET_DIR/:"
+        log "Скопированные модули:"
         if [ -d "$TARGET_DIR" ]; then
-            ls -la "$TARGET_DIR" | grep -E '^d' | awk '{print "  " $9}' | sort | column -c 80
+            ls -la "$TARGET_DIR" | grep -E '^d' | awk '{print "  " $9}' | grep -E '^[A-Z]' | sort | column -c 80
         fi
         
         # Отключаем сетевую папку
@@ -179,50 +220,32 @@ copy_files() {
         return 0
     else
         warning "Не удалось подключиться к сетевой папке"
-        log "Возможно, файлы уже скопированы ранее или нет доступа"
         
-        # Проверяем, есть ли уже обязательные модули
-        local all_required_exist=true
-        for module in "Lib" "LibDRV" "LibLinux"; do
-            if [ ! -d "$TARGET_DIR/$module" ]; then
-                all_required_exist=false
-                break
-            fi
-        done
-        
-        if [ "$all_required_exist" = true ]; then
-            success "Обязательные модули уже существуют"
-            
-            # Проверяем выбранные модули
-            local missing_selected=()
-            if [ -n "${SELECTED_MODULES[*]}" ]; then
-                for module in "${SELECTED_MODULES[@]}"; do
-                    if [ ! -d "$TARGET_DIR/$module" ]; then
-                        missing_selected+=("$module")
-                    fi
-                done
-                
-                if [ ${#missing_selected[@]} -gt 0 ]; then
-                    warning "Отсутствуют выбранные модули: ${missing_selected[*]}"
-                fi
-            fi
-            
+        # Проверяем, есть ли уже файлы
+        if [ -d "$TARGET_DIR/Lib" ] && [ -d "$TARGET_DIR/LibDRV" ] && [ -d "$TARGET_DIR/LibLinux" ]; then
+            success "Обязательные модули уже существуют в целевой директории"
             return 0
         else
-            error "Не удалось получить файлы программы"
-            log "Попробуйте подключиться к сетевой папке вручную:"
-            echo "mkdir -p /mnt/medorg"
-            echo "mount -t cifs //10.0.1.11/auto /mnt/medorg -o username=Администратор,password=Ybyjxrf30lh*"
+            error "Нет доступа к файлам программы"
+            log "Для ручного копирования выполните:"
             echo ""
-            echo "Затем скопируйте модули:"
-            echo "# Обязательные:"
-            echo "cp -r /mnt/medorg/Lib /mnt/medorg/LibDRV /mnt/medorg/LibLinux $TARGET_DIR/"
-            if [ -n "${SELECTED_MODULES[*]}" ]; then
-                echo "# Выбранные:"
-                for module in "${SELECTED_MODULES[@]}"; do
-                    echo "cp -r /mnt/medorg/$module $TARGET_DIR/"
+            echo "1. Подключите сетевую папку:"
+            echo "   sudo mkdir -p /mnt/medorg"
+            echo "   sudo mount -t cifs //10.0.1.11/auto /mnt/medorg -o username=Администратор,password=Ybyjxrf30lh*"
+            echo ""
+            echo "2. Скопируйте модули:"
+            echo "   sudo cp -r /mnt/medorg/Lib /mnt/medorg/LibDRV /mnt/medorg/LibLinux $TARGET_DIR/"
+            echo ""
+            if [ -n "$SELECTED_MODULES" ]; then
+                echo "   # И выбранные модули:"
+                for module in "${selected_modules[@]}"; do
+                    echo "   sudo cp -r /mnt/medorg/$module $TARGET_DIR/"
                 done
             fi
+            echo ""
+            echo "3. Исправьте права:"
+            echo "   sudo chown -R $USER:$USER $TARGET_DIR"
+            echo "   sudo chmod -R 755 $TARGET_DIR"
             return 1
         fi
     fi
@@ -237,19 +260,29 @@ main() {
     # Проверка окружения
     check_environment
     
+    # Показываем что будем копировать
+    log "Параметры копирования:"
+    echo -e "  ${BLUE}•${NC} Пользователь: ${GREEN}$USER${NC}"
+    echo -e "  ${BLUE}•${NC} Целевая папка: ${YELLOW}$TARGET_DIR${NC}"
+    echo -e "  ${BLUE}•${NC} SELECTED_MODULES: ${CYAN}$SELECTED_MODULES${NC}"
+    echo ""
+    
     # Копирование файлов (только выбранных модулей)
     copy_files
     
     # Итог
     echo ""
     echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║      КОПИРОВАНИЕ УСПЕШНО ЗАВЕРШЕНО!           ║${NC}"
+    echo -e "${GREEN}║      КОПИРОВАНИЕ ЗАВЕРШЕНО!                    ║${NC}"
     echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
     echo ""
 }
 
 # Обработка прерывания
-trap 'echo -e "\n${RED}Копирование прервано${NC}"; exit 1' INT
+trap 'echo -e "\n${RED}Копирование прервано${NC}"; 
+      [ -d "/tmp/medorg_mount_$$" ] && umount -f "/tmp/medorg_mount_$$" 2>/dev/null || true;
+      [ -d "/tmp/medorg_mount_$$" ] && rmdir "/tmp/medorg_mount_$$" 2>/dev/null || true;
+      exit 1' INT
 
 # Запуск
 main "$@"
