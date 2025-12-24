@@ -366,23 +366,20 @@ run_modules() {
         
         log "Запуск модуля: $module_name..."
         
-        # Скачиваем скрипт модуля
-        local module_content=$(curl -s "$module_url")
-        
         # Создаем временный скрипт со всеми необходимыми переменными
         local temp_script="/tmp/medorg_module_$$.sh"
         
+        # Экспортируем переменные и вызываем модуль
         cat > "$temp_script" << EOF
 #!/bin/bash
-# Загружаем переменные окружения из главного скрипта
 export TARGET_USER="$USER"
 export TARGET_HOME="$HOME_DIR"
 export SELECTED_MODULES="${SELECTED_MODULES[*]}"
-export SELECTED_MODULES_LIST="${SELECTED_MODULES[*]}"
 export INPUT_METHOD="$INPUT_METHOD"
 export AUTO_MODE="$AUTO_MODE"
 
-$module_content
+# Загружаем модуль
+$(curl -s "$module_url")
 EOF
         
         chmod +x "$temp_script"
@@ -397,26 +394,31 @@ EOF
     }
     
     # Модуль 1: Зависимости
+    echo "=== Модуль 1: Установка зависимостей ==="
     run_module \
         "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/01-dependencies.sh?cache=\$(date +%s)" \
         "зависимости"
     
     # Модуль 2: Настройка Wine
+    echo "=== Модуль 2: Настройка Wine ==="
     run_module \
         "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/02-wine-setup.sh?cache=\$(date +%s)" \
         "Wine"
     
     # Модуль 3: Копирование файлов
+    echo "=== Модуль 3: Копирование файлов ==="
     run_module \
         "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/03-copy-files.sh?cache=\$(date +%s)" \
         "копирование"
     
     # Модуль 4: Исправление midas.dll
+    echo "=== Модуль 4: Исправление midas.dll ==="
     run_module \
         "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/04-fix-midas.sh?cache=\$(date +%s)" \
         "midas.dll"
     
     # Модуль 5: Создание ярлыков
+    echo "=== Модуль 5: Создание ярлыков ==="
     run_module \
         "https://raw.githubusercontent.com/kubinets/medorg-installer/main/modules/05-create-shortcuts.sh?cache=\$(date +%s)" \
         "ярлыки"
