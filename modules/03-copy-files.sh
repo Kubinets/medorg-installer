@@ -1,5 +1,5 @@
 #!/bin/bash
-# Копирование программы с настройкой сетевой папки - FIXED
+# Копирование программы с настройкой сетевой папки - исправленная версия
 
 set -e
 
@@ -15,145 +15,68 @@ success() { echo -e "${GREEN}✓${NC} $1"; }
 warning() { echo -e "${YELLOW}!${NC} $1"; }
 error() { echo -e "${RED}✗${NC} $1"; }
 
-# Определяем массивы модулей из экспортированных переменных
-REQUIRED=(${REQUIRED[@]})
-if [ ${#SELECTED_MODULES[@]} -eq 0 ]; then
-    SELECTED_MODULES=()
-else
-    SELECTED_MODULES=(${SELECTED_MODULES[@]})
-fi
-
-# Красивая рамка
-print_section() {
-    local title="$1"
-    local width=50
-    local padding=$(( (width - ${#title} - 2) / 2 ))
+# Проверка окружения
+check_environment() {
+    log "Проверка окружения..."
     
-    echo ""
-    echo -e "${CYAN}╔$(printf '═%.0s' $(seq 1 $width))╗${NC}"
-    echo -e "${CYAN}║$(printf ' %.0s' $(seq 1 $padding))${GREEN}$title${CYAN}$(printf ' %.0s' $(seq 1 $((width - padding - ${#title}))))║${NC}"
-    echo -e "${CYAN}╚$(printf '═%.0s' $(seq 1 $width))╝${NC}"
-    echo ""
-}
-
-# Функция печатающей машинки
-typewriter() {
-    local text="$1"
-    local delay="${2:-0.01}"
-    
-    for (( i=0; i<${#text}; i++ )); do
-        echo -n "${text:$i:1}"
-        sleep $delay
-    done
-    echo ""
-}
-
-# Получение данных сетевой папки
-get_network_share() {
-    print_section "НАСТРОЙКА СЕТЕВОЙ ПАПКИ"
-    
-    echo "По умолчанию используется:"
-    echo "  Адрес:   //10.0.1.11/auto"
-    echo "  Логин:   Администратор"
-    echo "  Пароль:  ********"
-    echo ""
-    
-    # Проверяем, интерактивный ли режим
-    if [[ "$INPUT_METHOD" == "args" ]]; then
-        exec < /dev/tty
+    if [ -z "$TARGET_USER" ] || [ -z "$TARGET_HOME" ]; then
+        error "Переменные TARGET_USER и TARGET_HOME не установлены"
+        exit 1
     fi
     
-    read -p "Использовать значения по умолчанию? (Y/n): " -n 1 -r
-    echo ""
-    
-    if [[ $REPLY =~ ^[Nn]$ ]]; then
-        # Ввод пользовательских данных
-        echo ""
-        echo -e "${YELLOW}Введите данные сетевой папки:${NC}"
-        echo ""
-        
-        # Адрес сервера
-        while true; do
-            read -p "Адрес сервера [//10.0.1.11/auto]: " server_addr
-            server_addr="${server_addr:-//10.0.1.11/auto}"
-            
-            if [[ "$server_addr" =~ ^// ]]; then
-                break
-            else
-                warning "Адрес должен начинаться с //"
-            fi
-        done
-        
-        # Логин
-        read -p "Имя пользователя [Администратор]: " username
-        username="${username:-Администратор}"
-        
-        # Пароль
-        read -sp "Пароль: " password
-        echo ""
-        
-        if [ -z "$password" ]; then
-            password="Ybyjxrf30lh*"
-            echo "Используется пароль по умолчанию"
-        fi
-    else
-        # Используем значения по умолчанию
-        server_addr="//10.0.1.11/auto"
-        username="Администратор"
-        password="Ybyjxrf30lh*"
-        echo "Используются значения по умолчанию"
+    if ! id "$TARGET_USER" &>/dev/null; then
+        error "Пользователь $TARGET_USER не существует"
+        exit 1
     fi
     
-    # Сохраняем в переменные
-    NETWORK_SHARE="$server_addr"
-    SHARE_USERNAME="$username"
-    SHARE_PASSWORD="$password"
+    USER="$TARGET_USER"
+    HOME_DIR="$TARGET_HOME"
+    TARGET_DIR="$HOME_DIR/.wine_medorg/drive_c/MedCTech/MedOrg"
     
-    echo ""
-    success "Настройки сетевой папки сохранены"
-    echo "  Адрес: $NETWORK_SHARE"
-    echo "  Логин: $SHARE_USERNAME"
+    log "Пользователь: $USER"
+    log "Целевая директория: $TARGET_DIR"
+    
+    # Создаем директорию
+    mkdir -p "$TARGET_DIR"
+    chown -R "$USER:$USER" "$(dirname "$TARGET_DIR")"
+    
+    success "Окружение проверено"
 }
 
 # Подключение к сетевой папке
 mount_network_share() {
     local mount_point="$1"
     
-    log "Попытка подключения к сетевой папке..."
-    echo "  Адрес: $NETWORK_SHARE"
-    echo "  Логин: $SHARE_USERNAME"
+    log "Подключение к сетевой папке..."
+    
+    # Параметры подключения (как в ручной установке)
+    local server="//10.0.1.11/auto"
+    local username="Администратор"
+    local password="Ybyjxrf30lh*"
+    
+    log "Адрес: $server"
+    log "Пользователь: $username"
     
     # Создаем точку монтирования
     mkdir -p "$mount_point"
     
-    # Пробуем разные опции монтирования
-    local mount_options="username=$SHARE_USERNAME,password=$SHARE_PASSWORD,uid=$(id -u "$TARGET_USER"),gid=$(id -g "$TARGET_USER"),iocharset=utf8,file_mode=0777,dir_mode=0777"
+    # Пробуем подключиться
+    local mount_options="username=$username,password=$password,uid=$(id -u "$USER"),gid=$(id -g "$USER"),iocharset=utf8,file_mode=0777,dir_mode=0777"
     
-    if mount -t cifs "$NETWORK_SHARE" "$mount_point" -o "$mount_options" 2>&1; then
+    if mount -t cifs "$server" "$mount_point" -o "$mount_options" 2>&1; then
         success "Сетевая папка успешно подключена"
         return 0
     else
-        warning "Не удалось подключиться с основными опциями, пробуем альтернативные..."
+        warning "Не удалось подключиться с основными опциями"
         
         # Альтернативные опции
-        local alt_options="username=$SHARE_USERNAME,password=$SHARE_PASSWORD,uid=$(id -u "$TARGET_USER")"
+        local alt_options="username=$username,password=$password,uid=$(id -u "$USER")"
         
-        if mount -t cifs "$NETWORK_SHARE" "$mount_point" -o "$alt_options" 2>&1; then
+        if mount -t cifs "$server" "$mount_point" -o "$alt_options" 2>&1; then
             success "Сетевая папка подключена с альтернативными опциями"
             return 0
         else
             error "Не удалось подключиться к сетевой папке"
-            
-            # Пробуем ручное подключение через smbclient
-            log "Проверка доступности через smbclient..."
-            if command -v smbclient >/dev/null 2>&1; then
-                if echo "exit" | smbclient "$NETWORK_SHARE" -U "$SHARE_USERNAME"%"$SHARE_PASSWORD" 2>/dev/null; then
-                    log "Сервер доступен, возможно проблема с правами монтирования"
-                else
-                    log "Сервер недоступен или неверные учетные данные"
-                fi
-            fi
-            
             return 1
         fi
     fi
@@ -161,176 +84,76 @@ mount_network_share() {
 
 # Копирование файлов
 copy_files() {
-    print_section "КОПИРОВАНИЕ ФАЙЛОВ"
-    
     local mount_point="/tmp/medorg_mount_$$"
-    
-    # Получаем данные сетевой папки
-    get_network_share
     
     # Пытаемся подключиться
     if mount_network_share "$mount_point"; then
         log "Начинаем копирование файлов..."
         
-        # Копируем обязательные папки
-        log "Обязательные модули:"
-        local required_copied=0
-        for folder in "${REQUIRED[@]}"; do
-            if [ -d "$mount_point/$folder" ]; then
-                cp -r "$mount_point/$folder" "$TARGET_DIR/"
-                chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_DIR/$folder"
-                echo -e "  ${GREEN}✓${NC} $folder"
-                required_copied=$((required_copied + 1))
-            else
-                echo -e "  ${YELLOW}!${NC} $folder не найдена на сервере"
-            fi
-        done
+        # Копируем ВСЕ содержимое (как в ручной установке)
+        log "Копируем все файлы из сетевой папки..."
+        cp -r "$mount_point"/* "$TARGET_DIR"/ 2>/dev/null || true
         
-        if [ $required_copied -eq ${#REQUIRED[@]} ]; then
-            success "Все обязательные модули скопированы"
-        else
-            warning "Скопировано $required_copied из ${#REQUIRED[@]} обязательных модулей"
-        fi
+        # Устанавливаем права
+        chown -R "$USER:$USER" "$TARGET_DIR"/*
         
-        # Копируем выбранные модули
-        if [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
-            echo ""
-            log "Дополнительные модули:"
-            local selected_copied=0
-            for folder in "${SELECTED_MODULES[@]}"; do
-                if [ -d "$mount_point/$folder" ]; then
-                    cp -r "$mount_point/$folder" "$TARGET_DIR/"
-                    chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_DIR/$folder"
-                    echo -e "  ${GREEN}✓${NC} $folder"
-                    selected_copied=$((selected_copied + 1))
-                else
-                    echo -e "  ${YELLOW}!${NC} $folder не найдена на сервере"
-                fi
-            done
-            
-            if [ $selected_copied -gt 0 ]; then
-                success "Скопировано $selected_copied дополнительных модулей"
-            else
-                warning "Не удалось скопировать дополнительные модули"
-            fi
-        fi
+        success "Файлы скопированы"
         
-        # Копируем общие файлы
-        echo ""
-        log "Общие файлы:"
-        local common_files=("midasregMedOrg.cmd" "readme.txt")
-        local files_copied=0
-        
-        for pattern in "${common_files[@]}"; do
-            for file in "$mount_point"/$pattern; do
-                if [ -f "$file" ]; then
-                    cp "$file" "$TARGET_DIR/" 2>/dev/null && {
-                        chown "$TARGET_USER:$TARGET_USER" "$TARGET_DIR/$(basename "$file")"
-                        echo -e "  ${GREEN}✓${NC} $(basename "$file")"
-                        files_copied=$((files_copied + 1))
-                    }
-                fi
-            done
-        done
+        # Показываем что скопировалось
+        log "Содержимое целевой директории:"
+        ls -la "$TARGET_DIR" | head -15
         
         # Отключаем сетевую папку
         umount "$mount_point" 2>/dev/null || true
         rmdir "$mount_point" 2>/dev/null || true
         
-        # Проверяем результат копирования
-        echo ""
-        if [ $required_copied -eq 0 ]; then
-            error "Не удалось скопировать ни одного модуля!"
-            echo "Возможные причины:"
-            echo "  1. Неверный путь к сетевой папке"
-            echo "  2. Неверный логин/пароль"
-            echo "  3. Нет доступа к серверу"
-            echo "  4. Папки с программами не найдены на сервере"
-            return 1
-        else
-            success "Копирование завершено"
-            echo "Скопировано:"
-            echo "  • Обязательные модули: $required_copied"
-            if [ ${#SELECTED_MODULES[@]} -gt 0 ]; then
-                echo "  • Дополнительные модули: $selected_copied"
-            fi
-            echo "  • Файлы: $files_copied"
-            return 0
-        fi
+        return 0
     else
-        error "Не удалось подключиться к сетевой папке"
+        warning "Не удалось подключиться к сетевой папке"
+        log "Возможно, файлы уже скопированы ранее или нет доступа"
         
-        # Предлагаем альтернативу - ручное копирование
-        echo ""
-        echo -e "${YELLOW}Альтернативный вариант:${NC}"
-        echo "1. Подключите сетевую папку вручную:"
-        echo "   sudo mount -t cifs $NETWORK_SHARE /mnt -o username=$SHARE_USERNAME,password=$SHARE_PASSWORD"
-        echo ""
-        echo "2. Скопируйте файлы вручную:"
-        echo "   cp -r /mnt/* $TARGET_DIR/"
-        echo "   chown -R $TARGET_USER:$TARGET_USER $TARGET_DIR"
-        echo ""
-        echo "3. Затем продолжите установку"
-        
-        return 1
+        # Проверяем, есть ли уже файлы
+        if [ -d "$TARGET_DIR/Lib" ]; then
+            success "Файлы уже существуют в целевой директории"
+            return 0
+        else
+            error "Нет доступа к файлам. Проверьте сетевую папку вручную."
+            return 1
+        fi
     fi
 }
 
-# Проверка и подготовка
+# Основная функция
 main() {
-    # Проверяем необходимые переменные
-    if [ -z "$TARGET_USER" ] || [ -z "$TARGET_HOME" ]; then
-        error "Переменные TARGET_USER и TARGET_HOME не установлены"
-        exit 1
-    fi
+    echo ""
+    echo -e "${CYAN}КОПИРОВАНИЕ ПРОГРАММ ИЗ СЕТЕВОЙ ПАПКИ${NC}"
+    echo ""
     
-    # Проверяем существование пользователя
-    if ! id "$TARGET_USER" &>/dev/null; then
-        error "Пользователь $TARGET_USER не существует"
-        exit 1
-    fi
+    # Проверка окружения
+    check_environment
     
-    # Определяем INPUT_METHOD если не установлен
-    if [ -z "${INPUT_METHOD+x}" ]; then
-        if [[ -t 0 ]]; then
-            INPUT_METHOD="tty"
-        else
-            INPUT_METHOD="args"
-        fi
-    fi
-    
-    # Подготавливаем целевую директорию
-    TARGET_DIR="$TARGET_HOME/.wine_medorg/drive_c/MedCTech/MedOrg"
-    mkdir -p "$TARGET_DIR"
-    chown -R "$TARGET_USER:$TARGET_USER" "$(dirname "$TARGET_DIR")"
-    
-    log "Целевая директория: $TARGET_DIR"
-    log "Пользователь: $TARGET_USER"
-    
-    # Проверяем, установлен ли cifs-utils
-    if ! command -v mount.cifs >/dev/null 2>&1; then
-        warning "cifs-utils не установлен, пытаемся установить..."
-        if command -v dnf >/dev/null 2>&1; then
-            dnf install -y cifs-utils 2>/dev/null || {
-                error "Не удалось установить cifs-utils"
-                echo "Установите вручную: sudo dnf install cifs-utils"
-                exit 1
-            }
-        elif command -v apt-get >/dev/null 2>&1; then
-            apt-get update && apt-get install -y cifs-utils 2>/dev/null || {
-                error "Не удалось установить cifs-utils"
-                echo "Установите вручную: sudo apt-get install cifs-utils"
-                exit 1
-            }
-        else
-            error "Не найден менеджер пакетов для установки cifs-utils"
-            exit 1
-        fi
-    fi
-    
-    # Запускаем копирование
+    # Копирование файлов
     copy_files
+    
+    # Итог
+    echo ""
+    echo -e "${GREEN}╔══════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║      КОПИРОВАНИЕ УСПЕШНО ЗАВЕРШЕНО!           ║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    echo -e "${CYAN}Расположение программ:${NC}"
+    echo -e "${BLUE}──────────────────────${NC}"
+    echo -e "  ${YELLOW}$TARGET_DIR/${NC}"
+    echo ""
+    echo -e "${CYAN}Для проверки выполните:${NC}"
+    echo -e "${BLUE}──────────────────────${NC}"
+    echo -e "  ${YELLOW}ls -la $TARGET_DIR/${NC}"
+    echo ""
 }
+
+# Обработка прерывания
+trap 'echo -e "\n${RED}Копирование прервано${NC}"; exit 1' INT
 
 # Запуск
 main "$@"

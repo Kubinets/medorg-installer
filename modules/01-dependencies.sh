@@ -1,5 +1,5 @@
 #!/bin/bash
-# Установка системных зависимостей - красивая версия
+# Установка системных зависимостей - исправленная версия
 
 set -e
 
@@ -10,18 +10,6 @@ BLUE='\033[0;34m'
 PURPLE='\033[1;35m'
 CYAN='\033[1;36m'
 NC='\033[0m'
-
-# Анимированный вывод
-typewriter() {
-    local text="$1"
-    local delay="${2:-0.01}"
-    
-    for (( i=0; i<${#text}; i++ )); do
-        echo -n "${text:$i:1}"
-        sleep $delay
-    done
-    echo ""
-}
 
 # Красивая рамка
 print_section() {
@@ -59,53 +47,54 @@ detect_system() {
         OS="unknown"
         warning "Неизвестная ОС, попробуем Fedora пакеты"
     fi
-    
-    sleep 1
 }
 
-# Прогресс бар
-progress_bar() {
-    local duration=${1}
+# Установка winetricks (ИСПРАВЛЕННАЯ)
+install_winetricks() {
+    log "Установка Winetricks..."
     
-    already_done() { for ((done=0; done<$1; done++)); do echo -n "█"; done }
-    remaining() { for ((remain=$1; remain<$2; remain++)); do echo -n "░"; done }
-    percentage() { echo -n " $1%" ; }
-    
-    for ((i=0; i<=100; i++)); do
-        echo -ne "\r\033[K"
-        echo -n "["
-        already_done $((i/2))
-        remaining $((i/2)) 50
-        echo -n "]"
-        percentage $i
-        sleep $duration
-    done
-    echo ""
+    if ! command -v winetricks >/dev/null 2>&1; then
+        echo -n "  Скачивание winetricks... "
+        if wget -q https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks -O /tmp/winetricks; then
+            echo -e "${GREEN}✓${NC}"
+            echo -n "  Установка в /usr/local/bin... "
+            chmod +x /tmp/winetricks
+            mv /tmp/winetricks /usr/local/bin/
+            
+            # Проверяем установку
+            if command -v winetricks >/dev/null 2>&1; then
+                echo -e "${GREEN}✓${NC}"
+                log "Версия: $(winetricks --version 2>/dev/null | head -1 || echo 'неизвестно')"
+            else
+                echo -e "${YELLOW}!${NC}"
+                warning "Winetricks не установился правильно"
+            fi
+        else
+            echo -e "${RED}✗${NC}"
+            warning "Не удалось скачать winetricks"
+        fi
+    else
+        success "Winetricks уже установлен"
+    fi
 }
 
 # Установка зависимостей для Fedora/RHEL
 install_fedora_deps() {
-    print_section "УСТАНОВКА ЗАВИСИМОСТЕЙ"
+    print_section "УСТАНОВКА ЗАВИСИМОСТЕЙ FEDORA"
     
     echo -e "${CYAN}Этап 1: Обновление системы${NC}"
-    typewriter "Обновление пакетов..." 0.03
-    if dnf update -y --quiet 2>&1 | grep -v "Loading\|Already"; then
-        success "Система обновлена"
-    else
-        warning "Возникли проблемы при обновлении"
-    fi
+    dnf update -y --quiet
     
     echo ""
     echo -e "${CYAN}Этап 2: Базовые утилиты${NC}"
-    local basic_packages=("wget" "curl" "cabextract" "p7zip" "unzip" "git")
+    local basic_packages=("wget" "curl" "cabextract" "p7zip" "p7zip-plugins" "unzip" "git")
     for pkg in "${basic_packages[@]}"; do
-        echo -n "  Установка $pkg... "
+        echo -n "  $pkg... "
         if dnf install -y "$pkg" --quiet 2>&1 | grep -q "Complete\|уже установлен"; then
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${YELLOW}!${NC}"
         fi
-        sleep 0.1
     done
     
     echo ""
@@ -113,18 +102,17 @@ install_fedora_deps() {
     local graphics_packages=("freetype" "fontconfig" "libX11" "libXext" "libXcursor" 
                             "libXi" "libXrandr" "libXinerama" "libXcomposite" "mesa-libGLU")
     for pkg in "${graphics_packages[@]}"; do
-        echo -n "  Установка $pkg... "
+        echo -n "  $pkg... "
         if dnf install -y "$pkg" --quiet 2>&1 | grep -q "Complete\|уже установлен"; then
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${YELLOW}!${NC}"
         fi
-        sleep 0.1
     done
     
     echo ""
     echo -e "${CYAN}Этап 4: Сетевые файловые системы${NC}"
-    echo -n "  Установка cifs-utils и nfs-utils... "
+    echo -n "  cifs-utils, nfs-utils... "
     if dnf install -y cifs-utils nfs-utils --quiet 2>&1 | grep -q "Complete\|уже установлен"; then
         echo -e "${GREEN}✓${NC}"
     else
@@ -133,65 +121,47 @@ install_fedora_deps() {
     
     echo ""
     echo -e "${CYAN}Этап 5: Wine и компоненты${NC}"
-    typewriter "Добавление репозитория Wine..." 0.03
-    
-    # Добавляем репозиторий Wine для Fedora
-    if ! rpm -q winehq-keyring 2>/dev/null; then
-        echo -n "  Добавление репозитория... "
-        dnf config-manager --add-repo https://dl.winehq.org/wine-builds/fedora/$(rpm -E %fedora)/winehq.repo 2>/dev/null && \
-        echo -e "${GREEN}✓${NC}" || echo -e "${YELLOW}!${NC}"
-    fi
-    
-    local wine_packages=("wine" "wine.i686" "icoutils" "ImageMagick")
+    local wine_packages=("wine" "wine.i686" "icoutils")
     for pkg in "${wine_packages[@]}"; do
-        echo -n "  Установка $pkg... "
+        echo -n "  $pkg... "
         if dnf install -y "$pkg" --quiet 2>&1 | grep -q "Complete\|уже установлен"; then
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${YELLOW}!${NC}"
         fi
-        sleep 0.2
     done
     
-    echo ""
-    echo -e "${CYAN}Этап 6: Winetricks${NC}"
-    typewriter "Установка Winetricks..." 0.03
+    # Установка winetricks
+    install_winetricks
     
-    if ! command -v winetricks >/dev/null 2>&1; then
-        echo -n "  Скачивание... "
-        if wget -q https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks; then
-            echo -e "${GREEN}✓${NC}"
-            echo -n "  Установка... "
-            chmod +x winetricks
-            mv winetricks /usr/local/bin/
+    # Финальная проверка
+    echo ""
+    echo -e "${CYAN}Проверка установленных компонентов:${NC}"
+    
+    local checks=("wine --version 2>/dev/null" "curl --version 2>/dev/null" "unzip --help 2>/dev/null")
+    local check_names=("Wine" "cURL" "Unzip")
+    
+    for i in "${!checks[@]}"; do
+        echo -n "  ${check_names[i]}... "
+        if eval "${checks[i]}" &>/dev/null; then
             echo -e "${GREEN}✓${NC}"
         else
             echo -e "${YELLOW}!${NC}"
-            warning "Не удалось скачать winetricks"
         fi
+    done
+    
+    # Проверяем winetricks отдельно
+    echo -n "  Winetricks... "
+    if command -v winetricks >/dev/null 2>&1; then
+        echo -e "${GREEN}✓${NC}"
     else
-        success "Winetricks уже установлен"
+        echo -e "${YELLOW}!${NC}"
     fi
-}
-
-# Установка зависимостей для Debian/Ubuntu
-install_debian_deps() {
-    print_section "УСТАНОВКА ЗАВИСИМОСТЕЙ"
-    
-    echo -e "${CYAN}Этап 1: Обновление системы${NC}"
-    apt-get update -y 2>&1 | grep -v "Reading\|Building"
-    success "Репозитории обновлены"
-    
-    # Остальные этапы аналогично, но с apt-get вместо dnf
-    # (для краткости опускаю)
 }
 
 # Основная функция установки
 install_dependencies() {
     print_section "ПОДГОТОВКА К УСТАНОВКЕ"
-    
-    typewriter "Проверка системы и подготовка к установке..." 0.03
-    echo ""
     
     # Проверяем права
     if [ "$EUID" -ne 0 ]; then 
@@ -213,35 +183,15 @@ install_dependencies() {
             install_fedora_deps
             ;;
         "debian")
-            install_debian_deps
+            # Для Debian аналогично, но с apt-get
+            log "Для Debian/Ubuntu установите зависимости вручную:"
+            echo "sudo apt-get update && sudo apt-get install wine winetricks cabextract p7zip-full"
             ;;
         *)
             warning "Неизвестная ОС, пробуем Fedora пакеты..."
             install_fedora_deps
             ;;
     esac
-    
-    # Финальная проверка
-    echo ""
-    echo -e "${CYAN}Проверка установленных компонентов:${NC}"
-    
-    local checks=("wine --version" "winetricks --version" "curl --version" "unzip --help")
-    local check_names=("Wine" "Winetricks" "cURL" "Unzip")
-    
-    for i in "${!checks[@]}"; do
-        echo -n "  ${check_names[i]}... "
-        if eval "${checks[i]}" &>/dev/null; then
-            echo -e "${GREEN}✓${NC}"
-        else
-            echo -e "${YELLOW}!${NC} (не установлен)"
-        fi
-        sleep 0.1
-    done
-    
-    # Анимированный прогресс-бар
-    echo ""
-    echo -ne "${BLUE}Завершение установки... ${NC}"
-    progress_bar 0.05
     
     # Красивое завершение
     echo ""
@@ -250,14 +200,6 @@ install_dependencies() {
     echo -e "${GREEN}╚══════════════════════════════════════════════════╝${NC}"
     echo ""
     
-    echo -e "${CYAN}Установленные компоненты:${NC}"
-    echo -e "${BLUE}─────────────────────────${NC}"
-    echo -e "  ${GREEN}•${NC} Wine и компоненты"
-    echo -e "  ${GREEN}•${NC} Winetricks"
-    echo -e "  ${GREEN}•${NC} Системные библиотеки"
-    echo -e "  ${GREEN}•${NC} Сетевые утилиты"
-    echo -e "  ${GREEN}•${NC} Графические библиотеки"
-    echo ""
     echo -e "${YELLOW}Теперь можно приступать к установке медицинского ПО.${NC}"
     echo ""
 }
